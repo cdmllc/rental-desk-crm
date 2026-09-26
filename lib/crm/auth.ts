@@ -1,7 +1,7 @@
 import { env } from 'cloudflare:workers';
 import { cookies } from 'next/headers';
 import { getChatGPTUser } from '@/app/chatgpt-auth';
-import { DEFAULT_ADMIN_USER_ID, DEMO_AGENT_USER_ID, type AccessRequest, type CrmSession, type CrmUser, type UserRole } from './model';
+import { DEFAULT_ADMIN_USER_ID, DEMO_AGENT_USER_ID, type AccessRequest, type CrmSession, type CrmUser, type RequestedPortal, type UserRole } from './model';
 import { crmAccessLevels, workforceAccessLevels, type CrmAccess, type WorkforceAccess } from '@/lib/workforce/model';
 
 const SESSION_COOKIE = 'cdm_crm_session';
@@ -198,11 +198,11 @@ export async function updateUser(actor: CrmSession, input: { id: string; display
   return publicUser(row);
 }
 
-export async function submitAccessRequest(input: { email: string; displayName: string; password: string; requestedPortal: 'crm' | 'staff' }): Promise<AccessRequest> {
+export async function submitAccessRequest(input: { email: string; displayName: string; password: string; requestedPortal: RequestedPortal }): Promise<AccessRequest> {
   await ensureAuthSchema();
   validatePassword(input.password);
   const email = input.email.trim().toLowerCase(), displayName = input.displayName.trim();
-  const requestedPortal = input.requestedPortal === 'staff' ? 'staff' : 'crm';
+  const requestedPortal: RequestedPortal = input.requestedPortal === 'staff' || input.requestedPortal === 'both' ? input.requestedPortal : 'crm';
   if (!/^\S+@\S+\.\S+$/.test(email) || !displayName) throw new AuthError('氏名とメールアドレスを確認してください', 400);
   if (await findUserByEmail(email)) throw new AuthError('このメールアドレスは登録済みです', 409);
   const existing = await database().prepare('SELECT * FROM crm_access_requests WHERE email=? COLLATE NOCASE').bind(email).first<AccessRequestRow>();
@@ -231,11 +231,12 @@ export async function reviewAccessRequest(actor: CrmSession, id: string, decisio
   }
   if (await findUserByEmail(request.email)) throw new AuthError('このメールアドレスはすでに登録済みです', 409);
   const userId = crypto.randomUUID();
-  const staffPortal = request.requested_portal === 'staff';
+  const staffPortal = request.requested_portal === 'staff' || request.requested_portal === 'both';
+  const crmPortal = request.requested_portal === 'crm' || request.requested_portal === 'both';
   await database().batch([
     database().prepare(`INSERT INTO crm_users
       (id,email,display_name,role,crm_access,workforce_access,password_salt,password_hash,must_change_password,active,failed_attempts,locked_until,created_at,updated_at)
-      VALUES (?,?,?,'agent',?,?,?,?,0,1,0,0,?,?)`).bind(userId, request.email, request.display_name, staffPortal ? 'none' : 'own', staffPortal ? 'staff' : 'none', request.password_salt, request.password_hash, now, now),
+      VALUES (?,?,?,'agent',?,?,?,?,0,1,0,0,?,?)`).bind(userId, request.email, request.display_name, crmPortal ? 'own' : 'none', staffPortal ? 'staff' : 'none', request.password_salt, request.password_hash, now, now),
     database().prepare("UPDATE crm_access_requests SET status='approved',reviewed_at=?,reviewed_by=? WHERE id=?").bind(now, actor.userId, id),
   ]);
   const user = await database().prepare('SELECT * FROM crm_users WHERE id=?').bind(userId).first<UserRow>();

@@ -8,9 +8,10 @@ function responseError(error: unknown) {
 
 export async function POST(request: Request) {
   try {
-    const body = await request.json() as { email?: string; displayName?: string; password?: string; requestedPortal?: 'crm' | 'staff' };
+    const body = await request.json() as { email?: string; displayName?: string; password?: string; requestedPortal?: 'crm' | 'staff' | 'both' };
     if (!body.email || !body.displayName || !body.password) throw new AuthError('すべての項目を入力してください', 400);
-    return Response.json({ request: await submitAccessRequest({ email: body.email, displayName: body.displayName, password: body.password, requestedPortal: body.requestedPortal === 'staff' ? 'staff' : 'crm' }) });
+    const requestedPortal = body.requestedPortal === 'staff' || body.requestedPortal === 'both' ? body.requestedPortal : 'crm';
+    return Response.json({ request: await submitAccessRequest({ email: body.email, displayName: body.displayName, password: body.password, requestedPortal }) });
   } catch (error) { return responseError(error); }
 }
 

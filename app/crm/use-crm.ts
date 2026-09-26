@@ -1,49 +1,53 @@
 'use client';
 
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { dataSchema, type Data } from '@/lib/crm/model';
-import { sampleData } from '@/lib/crm/seed';
+import { dataSchema, emptyData, type CrmPayload, type CrmSession, type Data } from '@/lib/crm/model';
 
-type SaveState = '読込中' | '保存済み' | '保存中' | '未保存';
-const localKey = 'rental-desk-crm-v1';
+type SaveState = '読込中' | '保存済み' | '保存中' | '未保存' | '読込エラー';
+
+function parsePayload(value: unknown): CrmPayload {
+  const payload = value as { data?: unknown; session?: CrmSession };
+  if (!payload.session?.email || !payload.session.userId) throw new Error('session unavailable');
+  return { data: dataSchema.parse(payload.data), session: payload.session };
+}
 
 export function useCrm() {
-  const [data, setData] = useState<Data>(() => sampleData());
+  const [data, setData] = useState<Data>(() => emptyData());
+  const [session, setSession] = useState<CrmSession | null>(null);
   const [saveState, setSaveState] = useState<SaveState>('読込中');
+  const [ready, setReady] = useState(false);
   const hydrated = useRef(false);
 
   useEffect(() => {
     let active = true;
-    Promise.allSettled([
-      fetch('/api/crm', { cache: 'no-store' }).then(async r => {
-        if (!r.ok) throw new Error('remote unavailable');
-        return dataSchema.parse(await r.json());
-      }),
-      Promise.resolve(localStorage.getItem(localKey)).then(raw => raw ? dataSchema.parse(JSON.parse(raw)) : null),
-    ]).then(([remote, local]) => {
-      if (!active) return;
-      if (remote.status === 'fulfilled') setData(remote.value);
-      else if (local.status === 'fulfilled' && local.value) setData(local.value);
-      hydrated.current = true;
-      setSaveState('保存済み');
-    });
+    fetch('/api/crm', { cache: 'no-store' })
+      .then(async response => {
+        if (!response.ok) throw new Error('remote unavailable');
+        return parsePayload(await response.json());
+      })
+      .then(payload => {
+        if (!active) return;
+        setData(payload.data);
+        setSession(payload.session);
+        hydrated.current = true;
+        setReady(true);
+        setSaveState('保存済み');
+      })
+      .catch(() => { if (active) setSaveState('読込エラー'); });
     return () => { active = false; };
   }, []);
 
   const update = useCallback((change: (current: Data) => Data) => {
     setData(current => {
       const next = change(current);
-      if (hydrated.current) {
-        localStorage.setItem(localKey, JSON.stringify(next));
-        setSaveState('未保存');
-      }
+      if (hydrated.current) setSaveState('未保存');
       return next;
     });
   }, []);
 
   const save = useCallback(async (next = data) => {
+    if (!hydrated.current) return false;
     setSaveState('保存中');
-    localStorage.setItem(localKey, JSON.stringify(next));
     try {
       const response = await fetch('/api/crm', { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify(next) });
       if (!response.ok) throw new Error('save failed');
@@ -61,5 +65,5 @@ export function useCrm() {
     return () => window.clearTimeout(timer);
   }, [data, save, saveState]);
 
-  return { data, update, save, saveState };
+  return { data, session, update, save, saveState, ready };
 }

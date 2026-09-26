@@ -11,6 +11,8 @@ export const crmUsers = sqliteTable("crm_users", {
   email: text("email").notNull().unique(),
   displayName: text("display_name").notNull(),
   role: text("role", { enum: ["admin", "agent"] }).notNull(),
+  crmAccess: text("crm_access", { enum: ["admin", "own", "none"] }).notNull().default("own"),
+  workforceAccess: text("workforce_access", { enum: ["admin", "staff", "none"] }).notNull().default("none"),
   passwordSalt: text("password_salt").notNull(),
   passwordHash: text("password_hash").notNull(),
   mustChangePassword: integer("must_change_password").notNull().default(1),
@@ -39,4 +41,10 @@ export const crmAccessRequests = sqliteTable("crm_access_requests", {
   requestedAt: integer("requested_at").notNull(),
   reviewedAt: integer("reviewed_at"),
   reviewedBy: text("reviewed_by"),
+});
+
+export const workforceState = sqliteTable("workforce_state", {
+  workspaceId: text("workspace_id").primaryKey(),
+  data: text("data").notNull(),
+  updatedAt: integer("updated_at").notNull(),
 });

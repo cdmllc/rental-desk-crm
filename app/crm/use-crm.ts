@@ -38,6 +38,16 @@ export function useCrm() {
           setReady(true);
           return;
         }
+        if (response.status === 403 && body.code === 'CRM_ACCESS_DENIED') {
+          const sessionResponse = await fetch('/api/auth/session', { cache: 'no-store' });
+          if (!sessionResponse.ok) throw new Error('session unavailable');
+          setSession((await sessionResponse.json() as { session: CrmSession }).session);
+          setData(emptyData());
+          hydrated.current = false;
+          setSaveState('保存済み');
+          setReady(true);
+          return;
+        }
         throw new Error(body.error || 'remote unavailable');
       }
       const payload = parsePayload(body);

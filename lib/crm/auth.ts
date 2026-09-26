@@ -2,6 +2,7 @@ import { env } from 'cloudflare:workers';
 import { cookies } from 'next/headers';
 import { getChatGPTUser } from '@/app/chatgpt-auth';
 import { DEFAULT_ADMIN_USER_ID, DEMO_AGENT_USER_ID, type AccessRequest, type CrmSession, type CrmUser, type UserRole } from './model';
+import { crmAccessLevels, workforceAccessLevels, type CrmAccess, type WorkforceAccess } from '@/lib/workforce/model';
 
 const SESSION_COOKIE = 'cdm_crm_session';
 const SESSION_TTL_SECONDS = 60 * 60 * 24 * 7;
@@ -11,12 +12,12 @@ const ADMIN_EMAIL = 'ceo@cdm-lifesupport.com';
 
 // These are one-time bootstrap hashes. Both seeded accounts must change their password after first login.
 const BOOTSTRAP_USERS = [
-  { id: DEFAULT_ADMIN_USER_ID, email: ADMIN_EMAIL, displayName: 'CDM 管理者', role: 'admin' as const, salt: '1FLw0frHFiuwKgp3T2LIOA', hash: 'UrGNU6YRveuSGZ1Fj75-bgsESivP4E6vGWYeJQdmMXg' },
-  { id: DEMO_AGENT_USER_ID, email: 'agent.demo@cdm-lifesupport.com', displayName: '佐々木（担当者）', role: 'agent' as const, salt: 'dJzMIv4sYqqogu3BYuTbyw', hash: 'FPqteJLWOH7tfhdhw9OcBFqqA0B9voHAiyGAnuxgZp4' },
+  { id: DEFAULT_ADMIN_USER_ID, email: ADMIN_EMAIL, displayName: 'CDM 管理者', role: 'admin' as const, crmAccess: 'admin' as const, workforceAccess: 'admin' as const, salt: '1FLw0frHFiuwKgp3T2LIOA', hash: 'UrGNU6YRveuSGZ1Fj75-bgsESivP4E6vGWYeJQdmMXg' },
+  { id: DEMO_AGENT_USER_ID, email: 'agent.demo@cdm-lifesupport.com', displayName: '佐々木（担当者）', role: 'agent' as const, crmAccess: 'own' as const, workforceAccess: 'none' as const, salt: 'dJzMIv4sYqqogu3BYuTbyw', hash: 'FPqteJLWOH7tfhdhw9OcBFqqA0B9voHAiyGAnuxgZp4' },
 ];
 
 type UserRow = {
-  id: string; email: string; display_name: string; role: UserRole; password_salt: string; password_hash: string;
+  id: string; email: string; display_name: string; role: UserRole; crm_access: CrmAccess; workforce_access: WorkforceAccess; password_salt: string; password_hash: string;
   must_change_password: number; active: number; failed_attempts: number; locked_until: number; created_at: number; updated_at: number;
 };
 type AccessRequestRow = {
@@ -38,6 +39,8 @@ export async function ensureAuthSchema() {
       email TEXT NOT NULL UNIQUE COLLATE NOCASE,
       display_name TEXT NOT NULL,
       role TEXT NOT NULL CHECK (role IN ('admin','agent')),
+      crm_access TEXT NOT NULL DEFAULT 'own',
+      workforce_access TEXT NOT NULL DEFAULT 'none',
       password_salt TEXT NOT NULL,
       password_hash TEXT NOT NULL,
       must_change_password INTEGER NOT NULL DEFAULT 1,
@@ -67,9 +70,18 @@ export async function ensureAuthSchema() {
       reviewed_at INTEGER,
       reviewed_by TEXT
     )`),
+  ]);
+  const columns = await db.prepare('PRAGMA table_info(crm_users)').all<{ name: string }>();
+  const names = new Set((columns.results || []).map(column => column.name));
+  const addedCrmAccess = !names.has('crm_access'), addedWorkforceAccess = !names.has('workforce_access');
+  if (addedCrmAccess) await db.prepare("ALTER TABLE crm_users ADD COLUMN crm_access TEXT NOT NULL DEFAULT 'own'").run();
+  if (addedWorkforceAccess) await db.prepare("ALTER TABLE crm_users ADD COLUMN workforce_access TEXT NOT NULL DEFAULT 'none'").run();
+  if (addedCrmAccess) await db.prepare("UPDATE crm_users SET crm_access=CASE WHEN role='admin' THEN 'admin' ELSE 'own' END").run();
+  if (addedWorkforceAccess) await db.prepare("UPDATE crm_users SET workforce_access=CASE WHEN role='admin' THEN 'admin' ELSE 'none' END").run();
+  await db.batch([
     ...BOOTSTRAP_USERS.map(user => db.prepare(`INSERT OR IGNORE INTO crm_users
-      (id,email,display_name,role,password_salt,password_hash,must_change_password,active,failed_attempts,locked_until,created_at,updated_at)
-      VALUES (?,?,?,?,?,?,1,1,0,0,?,?)`).bind(user.id, user.email, user.displayName, user.role, user.salt, user.hash, now, now)),
+      (id,email,display_name,role,crm_access,workforce_access,password_salt,password_hash,must_change_password,active,failed_attempts,locked_until,created_at,updated_at)
+      VALUES (?,?,?,?,?,?,?,?,1,1,0,0,?,?)`).bind(user.id, user.email, user.displayName, user.role, user.crmAccess, user.workforceAccess, user.salt, user.hash, now, now)),
     ...BOOTSTRAP_USERS.map(user => db.prepare(`UPDATE crm_users SET password_salt=?, password_hash=?, updated_at=?
       WHERE id=? AND must_change_password=1 AND created_at=updated_at`).bind(user.salt, user.hash, now, user.id)),
   ]);
@@ -78,6 +90,7 @@ export async function ensureAuthSchema() {
 export function publicUser(row: UserRow): CrmUser {
   return {
     id: row.id, email: row.email, displayName: row.display_name, role: row.role,
+    crmAccess: row.crm_access || (row.role === 'admin' ? 'admin' : 'own'), workforceAccess: row.workforce_access || (row.role === 'admin' ? 'admin' : 'none'),
     active: row.active === 1, mustChangePassword: row.must_change_password === 1,
     createdAt: row.created_at, updatedAt: row.updated_at,
   };
@@ -86,7 +99,7 @@ export function publicUser(row: UserRow): CrmUser {
 function sessionFromRow(row: UserRow): CrmSession {
   return {
     userId: row.id, email: row.email, displayName: row.display_name, role: row.role,
-    isAdmin: row.role === 'admin', mustChangePassword: row.must_change_password === 1,
+    isAdmin: row.role === 'admin', crmAccess: row.crm_access || (row.role === 'admin' ? 'admin' : 'own'), workforceAccess: row.workforce_access || (row.role === 'admin' ? 'admin' : 'none'), mustChangePassword: row.must_change_password === 1,
   };
 }
 
@@ -149,21 +162,21 @@ export async function listUsers(): Promise<CrmUser[]> {
   return (result.results || []).map(publicUser);
 }
 
-export async function createUser(input: { email: string; displayName: string; role: UserRole; initialPassword: string }): Promise<CrmUser> {
+export async function createUser(input: { email: string; displayName: string; role: UserRole; crmAccess?: CrmAccess; workforceAccess?: WorkforceAccess; initialPassword: string }): Promise<CrmUser> {
   validatePassword(input.initialPassword);
   const password = await createPasswordRecord(input.initialPassword);
   const id = crypto.randomUUID(), now = Date.now();
   try {
     await database().prepare(`INSERT INTO crm_users
-      (id,email,display_name,role,password_salt,password_hash,must_change_password,active,failed_attempts,locked_until,created_at,updated_at)
-      VALUES (?,?,?,?,?,?,1,1,0,0,?,?)`).bind(id, input.email.trim().toLowerCase(), input.displayName.trim(), input.role, password.salt, password.hash, now, now).run();
+      (id,email,display_name,role,crm_access,workforce_access,password_salt,password_hash,must_change_password,active,failed_attempts,locked_until,created_at,updated_at)
+      VALUES (?,?,?,?,?,?,?,?,1,1,0,0,?,?)`).bind(id, input.email.trim().toLowerCase(), input.displayName.trim(), input.role, input.crmAccess || (input.role === 'admin' ? 'admin' : 'own'), input.workforceAccess || (input.role === 'admin' ? 'admin' : 'none'), password.salt, password.hash, now, now).run();
   } catch { throw new AuthError('このメールアドレスは登録済みです', 409); }
   const row = await database().prepare('SELECT * FROM crm_users WHERE id=?').bind(id).first<UserRow>();
   if (!row) throw new Error('User creation failed');
   return publicUser(row);
 }
 
-export async function updateUser(actor: CrmSession, input: { id: string; displayName?: string; role?: UserRole; active?: boolean; initialPassword?: string }): Promise<CrmUser> {
+export async function updateUser(actor: CrmSession, input: { id: string; displayName?: string; role?: UserRole; crmAccess?: CrmAccess; workforceAccess?: WorkforceAccess; active?: boolean; initialPassword?: string }): Promise<CrmUser> {
   if (actor.userId === input.id && (input.role === 'agent' || input.active === false)) throw new AuthError('自分自身の管理者権限は停止できません', 400);
   const current = await database().prepare('SELECT * FROM crm_users WHERE id=?').bind(input.id).first<UserRow>();
   if (!current) throw new AuthError('担当者が見つかりません', 404);
@@ -174,8 +187,9 @@ export async function updateUser(actor: CrmSession, input: { id: string; display
     salt = password.salt; hash = password.hash; mustChange = 1;
     await database().prepare('DELETE FROM crm_sessions WHERE user_id=?').bind(input.id).run();
   }
-  await database().prepare(`UPDATE crm_users SET display_name=?, role=?, active=?, password_salt=?, password_hash=?, must_change_password=?, updated_at=? WHERE id=?`)
-    .bind(input.displayName?.trim() || current.display_name, input.role || current.role, input.active === undefined ? current.active : Number(input.active), salt, hash, mustChange, Date.now(), input.id).run();
+  if (input.crmAccess && !crmAccessLevels.includes(input.crmAccess) || input.workforceAccess && !workforceAccessLevels.includes(input.workforceAccess)) throw new AuthError('権限設定を確認してください', 400);
+  await database().prepare(`UPDATE crm_users SET display_name=?, role=?, crm_access=?, workforce_access=?, active=?, password_salt=?, password_hash=?, must_change_password=?, updated_at=? WHERE id=?`)
+    .bind(input.displayName?.trim() || current.display_name, input.role || current.role, input.crmAccess || current.crm_access, input.workforceAccess || current.workforce_access, input.active === undefined ? current.active : Number(input.active), salt, hash, mustChange, Date.now(), input.id).run();
   const row = await database().prepare('SELECT * FROM crm_users WHERE id=?').bind(input.id).first<UserRow>();
   if (!row) throw new Error('User update failed');
   return publicUser(row);
@@ -215,8 +229,8 @@ export async function reviewAccessRequest(actor: CrmSession, id: string, decisio
   const userId = crypto.randomUUID();
   await database().batch([
     database().prepare(`INSERT INTO crm_users
-      (id,email,display_name,role,password_salt,password_hash,must_change_password,active,failed_attempts,locked_until,created_at,updated_at)
-      VALUES (?,?,?,'agent',?,?,0,1,0,0,?,?)`).bind(userId, request.email, request.display_name, request.password_salt, request.password_hash, now, now),
+      (id,email,display_name,role,crm_access,workforce_access,password_salt,password_hash,must_change_password,active,failed_attempts,locked_until,created_at,updated_at)
+      VALUES (?,?,?,'agent','own','none',?,?,0,1,0,0,?,?)`).bind(userId, request.email, request.display_name, request.password_salt, request.password_hash, now, now),
     database().prepare("UPDATE crm_access_requests SET status='approved',reviewed_at=?,reviewed_by=? WHERE id=?").bind(now, actor.userId, id),
   ]);
   const user = await database().prepare('SELECT * FROM crm_users WHERE id=?').bind(userId).first<UserRow>();

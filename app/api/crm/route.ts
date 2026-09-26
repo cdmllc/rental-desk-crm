@@ -37,7 +37,7 @@ async function readMasterData(): Promise<Data> {
 }
 
 function filteredData(data: Data, session: CrmSession): Data {
-  if (session.isAdmin) return data;
+  if (session.crmAccess === 'admin') return data;
   const customers = data.customers.filter(customer => ownsCustomer(customer, session));
   const customerIds = new Set(customers.map(customer => customer.id));
   const deals = data.deals.filter(deal => ownsDeal(deal, session) && customerIds.has(deal.customerId));
@@ -64,6 +64,7 @@ function mergeAgentData(master: Data, incoming: Data, session: CrmSession): Data
 export async function GET() {
   try {
     const session = await requireCrmSession();
+    if (session.crmAccess === 'none') throw new AuthError('CRMの利用権限がありません', 403, 'CRM_ACCESS_DENIED');
     return Response.json({ data: filteredData(await readMasterData(), session), session });
   } catch (error) {
     const status = error instanceof AuthError ? error.status : 503;
@@ -74,10 +75,11 @@ export async function GET() {
 export async function PUT(request: Request) {
   try {
     const session = await requireCrmSession();
+    if (session.crmAccess === 'none') throw new AuthError('CRMの利用権限がありません', 403, 'CRM_ACCESS_DENIED');
     const parsed = dataSchema.safeParse(await request.json());
     if (!parsed.success) return Response.json({ error: '入力内容を確認してください' }, { status: 400 });
     const master = await readMasterData();
-    const next = session.isAdmin ? parsed.data : mergeAgentData(master, parsed.data, session);
+    const next = session.crmAccess === 'admin' ? parsed.data : mergeAgentData(master, parsed.data, session);
     const database = env.DB;
     if (!database) throw new Error('Database binding unavailable');
     await database.prepare(`INSERT INTO crm_state (workspace_id, data, updated_at) VALUES (?, ?, ?)

@@ -21,3 +21,14 @@ CREATE TABLE IF NOT EXISTS `crm_sessions` (
   FOREIGN KEY (`user_id`) REFERENCES `crm_users`(`id`) ON UPDATE no action ON DELETE cascade
 );
 CREATE INDEX IF NOT EXISTS `crm_sessions_token_idx` ON `crm_sessions` (`token_hash`);
+CREATE TABLE IF NOT EXISTS `crm_access_requests` (
+  `id` text PRIMARY KEY NOT NULL,
+  `email` text NOT NULL UNIQUE COLLATE NOCASE,
+  `display_name` text NOT NULL,
+  `password_salt` text NOT NULL,
+  `password_hash` text NOT NULL,
+  `status` text DEFAULT 'pending' NOT NULL CHECK (`status` IN ('pending','approved','rejected')),
+  `requested_at` integer NOT NULL,
+  `reviewed_at` integer,
+  `reviewed_by` text
+);

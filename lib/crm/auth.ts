@@ -1,7 +1,7 @@
 import { env } from 'cloudflare:workers';
 import { cookies } from 'next/headers';
 import { getChatGPTUser } from '@/app/chatgpt-auth';
-import { DEFAULT_ADMIN_USER_ID, DEMO_AGENT_USER_ID, type CrmSession, type CrmUser, type UserRole } from './model';
+import { DEFAULT_ADMIN_USER_ID, DEMO_AGENT_USER_ID, type AccessRequest, type CrmSession, type CrmUser, type UserRole } from './model';
 
 const SESSION_COOKIE = 'cdm_crm_session';
 const SESSION_TTL_SECONDS = 60 * 60 * 24 * 7;
@@ -18,6 +18,10 @@ const BOOTSTRAP_USERS = [
 type UserRow = {
   id: string; email: string; display_name: string; role: UserRole; password_salt: string; password_hash: string;
   must_change_password: number; active: number; failed_attempts: number; locked_until: number; created_at: number; updated_at: number;
+};
+type AccessRequestRow = {
+  id: string; email: string; display_name: string; password_salt: string; password_hash: string;
+  status: AccessRequest['status']; requested_at: number; reviewed_at: number | null; reviewed_by: string | null;
 };
 
 function database() {
@@ -52,6 +56,17 @@ export async function ensureAuthSchema() {
       FOREIGN KEY (user_id) REFERENCES crm_users(id) ON DELETE CASCADE
     )`),
     db.prepare('CREATE INDEX IF NOT EXISTS crm_sessions_token_idx ON crm_sessions(token_hash)'),
+    db.prepare(`CREATE TABLE IF NOT EXISTS crm_access_requests (
+      id TEXT PRIMARY KEY NOT NULL,
+      email TEXT NOT NULL UNIQUE COLLATE NOCASE,
+      display_name TEXT NOT NULL,
+      password_salt TEXT NOT NULL,
+      password_hash TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending','approved','rejected')),
+      requested_at INTEGER NOT NULL,
+      reviewed_at INTEGER,
+      reviewed_by TEXT
+    )`),
     ...BOOTSTRAP_USERS.map(user => db.prepare(`INSERT OR IGNORE INTO crm_users
       (id,email,display_name,role,password_salt,password_hash,must_change_password,active,failed_attempts,locked_until,created_at,updated_at)
       VALUES (?,?,?,?,?,?,1,1,0,0,?,?)`).bind(user.id, user.email, user.displayName, user.role, user.salt, user.hash, now, now)),
@@ -164,6 +179,49 @@ export async function updateUser(actor: CrmSession, input: { id: string; display
   const row = await database().prepare('SELECT * FROM crm_users WHERE id=?').bind(input.id).first<UserRow>();
   if (!row) throw new Error('User update failed');
   return publicUser(row);
+}
+
+export async function submitAccessRequest(input: { email: string; displayName: string; password: string }): Promise<AccessRequest> {
+  await ensureAuthSchema();
+  validatePassword(input.password);
+  const email = input.email.trim().toLowerCase(), displayName = input.displayName.trim();
+  if (!/^\S+@\S+\.\S+$/.test(email) || !displayName) throw new AuthError('氏名とメールアドレスを確認してください', 400);
+  if (await findUserByEmail(email)) throw new AuthError('このメールアドレスは登録済みです', 409);
+  const existing = await database().prepare('SELECT * FROM crm_access_requests WHERE email=? COLLATE NOCASE').bind(email).first<AccessRequestRow>();
+  const password = await createPasswordRecord(input.password), now = Date.now(), id = existing?.id || crypto.randomUUID();
+  await database().prepare(`INSERT INTO crm_access_requests
+    (id,email,display_name,password_salt,password_hash,status,requested_at,reviewed_at,reviewed_by)
+    VALUES (?,?,?,?,?,'pending',?,NULL,NULL)
+    ON CONFLICT(email) DO UPDATE SET display_name=excluded.display_name,password_salt=excluded.password_salt,password_hash=excluded.password_hash,status='pending',requested_at=excluded.requested_at,reviewed_at=NULL,reviewed_by=NULL`)
+    .bind(id, email, displayName, password.salt, password.hash, now).run();
+  return { id, email, displayName, status: 'pending', requestedAt: now, reviewedAt: null };
+}
+
+export async function listAccessRequests(): Promise<AccessRequest[]> {
+  await ensureAuthSchema();
+  const result = await database().prepare("SELECT * FROM crm_access_requests WHERE status='pending' ORDER BY requested_at ASC").all<AccessRequestRow>();
+  return (result.results || []).map(row => ({ id: row.id, email: row.email, displayName: row.display_name, status: row.status, requestedAt: row.requested_at, reviewedAt: row.reviewed_at }));
+}
+
+export async function reviewAccessRequest(actor: CrmSession, id: string, decision: 'approve' | 'reject'): Promise<{ request: AccessRequest; user?: CrmUser }> {
+  const request = await database().prepare("SELECT * FROM crm_access_requests WHERE id=? AND status='pending'").bind(id).first<AccessRequestRow>();
+  if (!request) throw new AuthError('承認待ちの申請が見つかりません', 404);
+  const now = Date.now();
+  if (decision === 'reject') {
+    await database().prepare("UPDATE crm_access_requests SET status='rejected',reviewed_at=?,reviewed_by=? WHERE id=?").bind(now, actor.userId, id).run();
+    return { request: { id, email: request.email, displayName: request.display_name, status: 'rejected', requestedAt: request.requested_at, reviewedAt: now } };
+  }
+  if (await findUserByEmail(request.email)) throw new AuthError('このメールアドレスはすでに登録済みです', 409);
+  const userId = crypto.randomUUID();
+  await database().batch([
+    database().prepare(`INSERT INTO crm_users
+      (id,email,display_name,role,password_salt,password_hash,must_change_password,active,failed_attempts,locked_until,created_at,updated_at)
+      VALUES (?,?,?,'agent',?,?,0,1,0,0,?,?)`).bind(userId, request.email, request.display_name, request.password_salt, request.password_hash, now, now),
+    database().prepare("UPDATE crm_access_requests SET status='approved',reviewed_at=?,reviewed_by=? WHERE id=?").bind(now, actor.userId, id),
+  ]);
+  const user = await database().prepare('SELECT * FROM crm_users WHERE id=?').bind(userId).first<UserRow>();
+  if (!user) throw new Error('User approval failed');
+  return { request: { id, email: request.email, displayName: request.display_name, status: 'approved', requestedAt: request.requested_at, reviewedAt: now }, user: publicUser(user) };
 }
 
 export async function revokeSession(token: string | undefined) {

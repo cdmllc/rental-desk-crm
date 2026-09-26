@@ -28,3 +28,15 @@ export const crmSessions = sqliteTable("crm_sessions", {
   expiresAt: integer("expires_at").notNull(),
   createdAt: integer("created_at").notNull(),
 });
+
+export const crmAccessRequests = sqliteTable("crm_access_requests", {
+  id: text("id").primaryKey(),
+  email: text("email").notNull().unique(),
+  displayName: text("display_name").notNull(),
+  passwordSalt: text("password_salt").notNull(),
+  passwordHash: text("password_hash").notNull(),
+  status: text("status", { enum: ["pending", "approved", "rejected"] }).notNull().default("pending"),
+  requestedAt: integer("requested_at").notNull(),
+  reviewedAt: integer("reviewed_at"),
+  reviewedBy: text("reviewed_by"),
+});

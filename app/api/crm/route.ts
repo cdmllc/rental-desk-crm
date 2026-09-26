@@ -9,6 +9,11 @@ const workspace = 'primary';
 async function readMasterData(): Promise<Data> {
   const database = env.DB;
   if (!database) throw new Error('Database binding unavailable');
+  await database.prepare(`CREATE TABLE IF NOT EXISTS crm_state (
+    workspace_id TEXT PRIMARY KEY NOT NULL,
+    data TEXT NOT NULL,
+    updated_at INTEGER NOT NULL
+  )`).run();
   const row = await database.prepare('SELECT data FROM crm_state WHERE workspace_id = ?').bind(workspace).first<{ data: string }>();
   const data = row ? dataSchema.parse(JSON.parse(row.data)) : sampleData();
   const users = await listUsers();

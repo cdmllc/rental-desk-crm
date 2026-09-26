@@ -5,13 +5,14 @@ import { DEFAULT_ADMIN_USER_ID, DEMO_AGENT_USER_ID, type CrmSession, type CrmUse
 
 const SESSION_COOKIE = 'cdm_crm_session';
 const SESSION_TTL_SECONDS = 60 * 60 * 24 * 7;
-const PBKDF2_ITERATIONS = 210_000;
+// Cloudflare Workers currently caps PBKDF2 at 100,000 iterations.
+const PBKDF2_ITERATIONS = 100_000;
 const ADMIN_EMAIL = 'ceo@cdm-lifesupport.com';
 
 // These are one-time bootstrap hashes. Both seeded accounts must change their password after first login.
 const BOOTSTRAP_USERS = [
-  { id: DEFAULT_ADMIN_USER_ID, email: ADMIN_EMAIL, displayName: 'CDM 管理者', role: 'admin' as const, salt: '1FLw0frHFiuwKgp3T2LIOA', hash: '1bXCQ1oWbsDwrNPk24F1Q4fLU_dJD6KXmsdWBIIl2cI' },
-  { id: DEMO_AGENT_USER_ID, email: 'agent.demo@cdm-lifesupport.com', displayName: '佐々木（担当者）', role: 'agent' as const, salt: 'dJzMIv4sYqqogu3BYuTbyw', hash: 'RpCKRpcj_eFBKJLD9AiS27UKB1kXRXzVY7A8p9MGHUM' },
+  { id: DEFAULT_ADMIN_USER_ID, email: ADMIN_EMAIL, displayName: 'CDM 管理者', role: 'admin' as const, salt: '1FLw0frHFiuwKgp3T2LIOA', hash: 'UrGNU6YRveuSGZ1Fj75-bgsESivP4E6vGWYeJQdmMXg' },
+  { id: DEMO_AGENT_USER_ID, email: 'agent.demo@cdm-lifesupport.com', displayName: '佐々木（担当者）', role: 'agent' as const, salt: 'dJzMIv4sYqqogu3BYuTbyw', hash: 'FPqteJLWOH7tfhdhw9OcBFqqA0B9voHAiyGAnuxgZp4' },
 ];
 
 type UserRow = {
@@ -54,6 +55,8 @@ export async function ensureAuthSchema() {
     ...BOOTSTRAP_USERS.map(user => db.prepare(`INSERT OR IGNORE INTO crm_users
       (id,email,display_name,role,password_salt,password_hash,must_change_password,active,failed_attempts,locked_until,created_at,updated_at)
       VALUES (?,?,?,?,?,?,1,1,0,0,?,?)`).bind(user.id, user.email, user.displayName, user.role, user.salt, user.hash, now, now)),
+    ...BOOTSTRAP_USERS.map(user => db.prepare(`UPDATE crm_users SET password_salt=?, password_hash=?, updated_at=?
+      WHERE id=? AND must_change_password=1 AND created_at=updated_at`).bind(user.salt, user.hash, now, user.id)),
   ]);
 }
 

@@ -20,14 +20,36 @@ export const defaultStatuses = [
   { id: 'キャンセル', label: 'キャンセル', kind: 'cancelled' },
 ] as const;
 
+export const recruitmentStatuses = [
+  { id: 'recruit-new', label: '新規相談', kind: 'active' }, { id: 'recruit-hearing', label: 'キャリア面談', kind: 'active' },
+  { id: 'recruit-proposal', label: '求人提案', kind: 'active' }, { id: 'recruit-application', label: '応募', kind: 'active' },
+  { id: 'recruit-interview', label: '面接中', kind: 'active' }, { id: 'recruit-offer', label: '内定', kind: 'active' },
+  { id: 'recruit-joined', label: '入社確認', kind: 'active' }, { id: 'recruit-complete', label: '完了', kind: 'complete' },
+  { id: 'recruit-hold', label: '保留', kind: 'hold' }, { id: 'recruit-lost', label: '辞退・失注', kind: 'lost' },
+  { id: 'recruit-cancelled', label: 'キャンセル', kind: 'cancelled' },
+] as const;
+
+export const lifelineStatuses = [
+  { id: 'line-new', label: '新規受付', kind: 'active' }, { id: 'line-hearing', label: '利用状況確認', kind: 'active' },
+  { id: 'line-application', label: '申込受付', kind: 'active' }, { id: 'line-provider', label: '事業者手続中', kind: 'active' },
+  { id: 'line-scheduled', label: '開通予定', kind: 'active' }, { id: 'line-opened', label: '開通確認', kind: 'active' },
+  { id: 'line-complete', label: '完了', kind: 'complete' }, { id: 'line-hold', label: '保留', kind: 'hold' },
+  { id: 'line-lost', label: '失注', kind: 'lost' }, { id: 'line-cancelled', label: 'キャンセル', kind: 'cancelled' },
+] as const;
+
+export function defaultStatusesForCategory(category: (typeof businessCategories)[number]) {
+  const source = category === 'recruitment' ? recruitmentStatuses : category === 'lifeline' ? lifelineStatuses : defaultStatuses;
+  return source.map(status => ({ ...status }));
+}
+
 export const defaultProducts = [
-  { id: 'product-rental', category: 'real-estate', name: '賃貸仲介', unitPrice: 0, active: true, version: 1 },
-  { id: 'product-career', category: 'recruitment', name: '人材紹介', unitPrice: 300000, active: true, version: 1 },
-  { id: 'product-hiring', category: 'recruitment', name: '採用支援', unitPrice: 100000, active: true, version: 1 },
-  { id: 'product-electricity', category: 'lifeline', name: '電気', unitPrice: 12000, active: true, version: 1 },
-  { id: 'product-gas', category: 'lifeline', name: 'ガス', unitPrice: 10000, active: true, version: 1 },
-  { id: 'product-internet', category: 'lifeline', name: 'インターネット', unitPrice: 25000, active: true, version: 1 },
-  { id: 'product-water', category: 'lifeline', name: 'ウォーターサーバー', unitPrice: 15000, active: true, version: 1 },
+  { id: 'product-rental', category: 'real-estate', name: '賃貸仲介', unitPrice: 0, active: true, version: 1, statuses: defaultStatusesForCategory('real-estate') },
+  { id: 'product-career', category: 'recruitment', name: '人材紹介', unitPrice: 300000, active: true, version: 1, statuses: defaultStatusesForCategory('recruitment') },
+  { id: 'product-hiring', category: 'recruitment', name: '採用支援', unitPrice: 100000, active: true, version: 1, statuses: defaultStatusesForCategory('recruitment') },
+  { id: 'product-electricity', category: 'lifeline', name: '電気', unitPrice: 12000, active: true, version: 1, statuses: defaultStatusesForCategory('lifeline') },
+  { id: 'product-gas', category: 'lifeline', name: 'ガス', unitPrice: 10000, active: true, version: 1, statuses: defaultStatusesForCategory('lifeline') },
+  { id: 'product-internet', category: 'lifeline', name: 'インターネット', unitPrice: 25000, active: true, version: 1, statuses: defaultStatusesForCategory('lifeline') },
+  { id: 'product-water', category: 'lifeline', name: 'ウォーターサーバー', unitPrice: 15000, active: true, version: 1, statuses: defaultStatusesForCategory('lifeline') },
 ] as const;
 
 const text = z.string().max(5000);
@@ -60,12 +82,19 @@ export const dealSchema = z.object({
 
 export const taskSchema = z.object({ ...base, dealId: text, title: text.min(1, 'タスク名を入力してください'), dueDate: date, owner: text, done: z.boolean() });
 export const statusOptionSchema = z.object({ id: z.string().min(1).max(100), label: z.string().trim().min(1).max(40), kind: z.enum(statusKinds) });
-export const productSchema = z.object({ ...base, category: z.enum(businessCategories), name: z.string().trim().min(1).max(80), unitPrice: money, active: z.boolean() });
+const productInputSchema = z.object({ ...base, category: z.enum(businessCategories), name: z.string().trim().min(1).max(80), unitPrice: money, active: z.boolean(), statuses: z.array(statusOptionSchema).min(1).max(100).optional() });
+export const productSchema = productInputSchema.transform(product => ({ ...product, statuses: product.statuses ?? defaultStatusesForCategory(product.category) }));
 export const settingsSchema = z.object({ ...base, partnerRate: z.number().min(0).max(100), statuses: z.array(statusOptionSchema).min(1).max(100).default(defaultStatuses.map(item => ({ ...item }))) });
 export const dataSchema = z.object({
   customers: z.array(customerSchema).max(5000), deals: z.array(dealSchema).max(10000), tasks: z.array(taskSchema).max(20000),
-  products: z.array(productSchema).max(500).default(defaultProducts.map(item => ({ ...item }))), settings: settingsSchema,
-});
+  products: z.array(productInputSchema).max(500).default(defaultProducts.map(item => ({ ...item }))), settings: settingsSchema,
+}).transform(data => ({
+  ...data,
+  products: data.products.map(product => ({
+    ...product,
+    statuses: product.statuses ?? (product.category === 'real-estate' ? data.settings.statuses.map(status => ({ ...status })) : defaultStatusesForCategory(product.category)),
+  })),
+}));
 
 export type BusinessCategory = (typeof businessCategories)[number];
 export type Customer = z.infer<typeof customerSchema>;
@@ -97,6 +126,7 @@ export const validRevenue = (deal: Deal, statuses: StatusOption[]) => !['lost', 
 export const missing = (deal: Deal) => deal.documents.filter(item => !item.done).length;
 export const urgent = (deal: Deal, day: string, statuses: StatusOption[]) => active(deal, statuses) && ((Boolean(deal.dueDate) && deal.dueDate <= day) || missing(deal) > 0);
 export const ownsCustomer = (customer: Customer, session: CrmSession) => customer.ownerUserId === session.userId || Boolean(customer.ownerEmail) && customer.ownerEmail.toLowerCase() === session.email.toLowerCase();
+export const statusesForDeal = (deal: Deal, data: Pick<Data, 'products' | 'settings'>) => data.products.find(product => product.id === deal.productId)?.statuses ?? data.settings.statuses;
 
 export function emptyData(): Data {
   return { customers: [], deals: [], tasks: [], products: defaultProducts.map(item => ({ ...item })), settings: { id: 'default', version: 1, partnerRate: 20, statuses: defaultStatuses.map(item => ({ ...item })) } };

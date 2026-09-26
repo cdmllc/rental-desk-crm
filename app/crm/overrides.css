@@ -365,6 +365,48 @@ body { background: #f4f7fb; }
 .settings-savebar button { height: 34px; font-size: 10px; }
 .settings-error { color: #b84d3e; font-size: 11px; }
 
+.auth-shell {
+  min-height: 100svh;
+  display: grid;
+  place-items: center;
+  padding: 28px;
+  background: radial-gradient(circle at 15% 10%, #eef4ff 0, transparent 34%), #f4f7fb;
+}
+.auth-card {
+  width: min(100%, 430px);
+  padding: 34px 36px 30px;
+  border: 1px solid #d9e2ed;
+  border-radius: 10px;
+  background: #fff;
+  box-shadow: 0 24px 65px rgba(18, 43, 77, .12);
+}
+.auth-brand { display: flex; align-items: center; gap: 12px; margin-bottom: 30px; }
+.auth-brand .brand-logo { width: 48px; height: 48px; border-radius: 8px; background-color: #f4f4f4; }
+.auth-brand strong, .auth-brand small { display: block; }
+.auth-brand strong { color: #152740; font-size: 15px; }
+.auth-brand small { margin-top: 2px; color: #8a98aa; font-size: 9px; letter-spacing: .12em; }
+.auth-copy { margin-bottom: 24px; }
+.auth-copy svg { width: 24px; height: 24px; margin-bottom: 12px; color: #195fc9; }
+.auth-copy h1 { color: #10213b; font-size: 25px; font-weight: 760; letter-spacing: -.5px; }
+.auth-copy p { margin-top: 6px; color: #718198; font-size: 12px; line-height: 1.7; }
+.auth-card form { display: grid; gap: 16px; }
+.auth-card form > button { height: 42px; margin-top: 2px; background: #135cdb; }
+.auth-error { padding: 9px 11px; border-radius: 5px; color: #a7473c; background: #fff3f1; font-size: 11px; }
+.auth-help { margin-top: 20px; color: #8a97a9; font-size: 10px; line-height: 1.6; }
+
+.logout-button { width: 30px; height: 30px; display: grid; place-items: center; margin-left: auto; border-radius: 5px; color: #7c8da4; }
+.logout-button:hover { color: #b34e46; background: #f7ebe9; }
+.staff-page .toolbar { justify-content: space-between; }
+.staff-page select { min-width: 110px; height: 32px; font-size: 10px; }
+.account-state { display: inline-flex; align-items: center; gap: 5px; font-size: 10px; font-weight: 650; }
+.account-state::before { width: 7px; height: 7px; border-radius: 50%; content: ''; }
+.account-state.active { color: #16745f; }
+.account-state.active::before { background: #1aa37f; }
+.account-state.inactive { color: #8b96a5; }
+.account-state.inactive::before { background: #a8b1be; }
+.row-actions { display: flex; gap: 7px; }
+.row-actions button { height: 30px; font-size: 10px; }
+
 .footnote { color: #8794a6; }
 
 @media (max-width: 1150px) {

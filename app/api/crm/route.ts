@@ -1,48 +1,56 @@
 import { env } from 'cloudflare:workers';
-import { getChatGPTUser } from '@/app/chatgpt-auth';
-import { dataSchema, ownsCustomer, type CrmSession, type Data } from '@/lib/crm/model';
+import { AuthError, listUsers, requireCrmSession } from '@/lib/crm/auth';
+import { DEFAULT_ADMIN_USER_ID, DEMO_AGENT_USER_ID, dataSchema, ownsCustomer, ownsDeal, ownsTask, type CrmSession, type Data } from '@/lib/crm/model';
 import { sampleData } from '@/lib/crm/seed';
 
 export const dynamic = 'force-dynamic';
 const workspace = 'primary';
-const administratorEmails = new Set(['ceo@cdm-lifesupport.com']);
-
-async function currentSession(): Promise<CrmSession | null> {
-  const user = await getChatGPTUser();
-  if (user) return { userId: user.userId, email: user.email, displayName: user.displayName, isAdmin: administratorEmails.has(user.email.toLowerCase()) };
-  if (process.env.NODE_ENV === 'development') return { userId: 'local-admin', email: 'ceo@cdm-lifesupport.com', displayName: '開発管理者', isAdmin: true };
-  return null;
-}
 
 async function readMasterData(): Promise<Data> {
   const database = env.DB;
   if (!database) throw new Error('Database binding unavailable');
   const row = await database.prepare('SELECT data FROM crm_state WHERE workspace_id = ?').bind(workspace).first<{ data: string }>();
-  return row ? dataSchema.parse(JSON.parse(row.data)) : sampleData();
+  const data = row ? dataSchema.parse(JSON.parse(row.data)) : sampleData();
+  const users = await listUsers();
+  const validIds = new Set(users.map(user => user.id));
+  const adminId = users.find(user => user.role === 'admin' && user.active)?.id || DEFAULT_ADMIN_USER_ID;
+  const demoId = users.find(user => user.id === DEMO_AGENT_USER_ID && user.active)?.id;
+  const customers = data.customers.map(customer => {
+    const fallback = customer.owner.includes('佐々木') && demoId ? demoId : adminId;
+    const assigneeUserId = validIds.has(customer.assigneeUserId) ? customer.assigneeUserId : fallback;
+    const user = users.find(item => item.id === assigneeUserId);
+    return { ...customer, assigneeUserId, ownerUserId: assigneeUserId, owner: user?.displayName || customer.owner, ownerEmail: user?.email || customer.ownerEmail };
+  });
+  const customerAssignees = new Map(customers.map(customer => [customer.id, customer.assigneeUserId]));
+  const deals = data.deals.map(deal => ({ ...deal, assigneeUserId: validIds.has(deal.assigneeUserId) ? deal.assigneeUserId : customerAssignees.get(deal.customerId) || adminId }));
+  const dealAssignees = new Map(deals.map(deal => [deal.id, deal.assigneeUserId]));
+  const tasks = data.tasks.map(task => {
+    const assigneeUserId = validIds.has(task.assigneeUserId) ? task.assigneeUserId : dealAssignees.get(task.dealId) || adminId;
+    return { ...task, assigneeUserId, owner: users.find(user => user.id === assigneeUserId)?.displayName || task.owner };
+  });
+  return { ...data, customers, deals, tasks };
 }
 
 function filteredData(data: Data, session: CrmSession): Data {
   if (session.isAdmin) return data;
   const customers = data.customers.filter(customer => ownsCustomer(customer, session));
   const customerIds = new Set(customers.map(customer => customer.id));
-  const deals = data.deals.filter(deal => customerIds.has(deal.customerId));
+  const deals = data.deals.filter(deal => ownsDeal(deal, session) && customerIds.has(deal.customerId));
   const dealIds = new Set(deals.map(deal => deal.id));
-  return { ...data, customers, deals, tasks: data.tasks.filter(task => !task.dealId || dealIds.has(task.dealId)) };
+  return { ...data, customers, deals, tasks: data.tasks.filter(task => ownsTask(task, session) && (!task.dealId || dealIds.has(task.dealId))) };
 }
 
-function mergeStaffData(master: Data, incoming: Data, session: CrmSession): Data {
-  if (incoming.customers.some(customer => !ownsCustomer(customer, session))) throw new Error('担当外の顧客は更新できません');
+function mergeAgentData(master: Data, incoming: Data, session: CrmSession): Data {
+  if (incoming.customers.some(customer => !ownsCustomer(customer, session))) throw new AuthError('担当外の顧客は更新できません', 403);
   const incomingCustomerIds = new Set(incoming.customers.map(customer => customer.id));
-  if (incoming.deals.some(deal => !incomingCustomerIds.has(deal.customerId))) throw new Error('担当外の案件は更新できません');
+  if (incoming.deals.some(deal => !ownsDeal(deal, session) || !incomingCustomerIds.has(deal.customerId))) throw new AuthError('担当外の案件は更新できません', 403);
   const incomingDealIds = new Set(incoming.deals.map(deal => deal.id));
-  if (incoming.tasks.some(task => task.dealId && !incomingDealIds.has(task.dealId))) throw new Error('担当外のタスクは更新できません');
+  if (incoming.tasks.some(task => !ownsTask(task, session) || task.dealId && !incomingDealIds.has(task.dealId))) throw new AuthError('担当外のタスクは更新できません', 403);
 
-  const ownedCustomerIds = new Set(master.customers.filter(customer => ownsCustomer(customer, session)).map(customer => customer.id));
-  const ownedDealIds = new Set(master.deals.filter(deal => ownedCustomerIds.has(deal.customerId)).map(deal => deal.id));
   return {
-    customers: [...master.customers.filter(customer => !ownedCustomerIds.has(customer.id)), ...incoming.customers],
-    deals: [...master.deals.filter(deal => !ownedCustomerIds.has(deal.customerId)), ...incoming.deals],
-    tasks: [...master.tasks.filter(task => !ownedDealIds.has(task.dealId)), ...incoming.tasks],
+    customers: [...master.customers.filter(customer => !ownsCustomer(customer, session)), ...incoming.customers],
+    deals: [...master.deals.filter(deal => !ownsDeal(deal, session)), ...incoming.deals],
+    tasks: [...master.tasks.filter(task => !ownsTask(task, session)), ...incoming.tasks],
     products: master.products,
     settings: master.settings,
   };
@@ -50,32 +58,29 @@ function mergeStaffData(master: Data, incoming: Data, session: CrmSession): Data
 
 export async function GET() {
   try {
-    const session = await currentSession();
-    if (!session) return Response.json({ error: 'ログインが必要です' }, { status: 401 });
+    const session = await requireCrmSession();
     return Response.json({ data: filteredData(await readMasterData(), session), session });
   } catch (error) {
-    console.error('CRM read failed', error);
-    return Response.json({ error: 'データを読み込めませんでした' }, { status: 503 });
+    const status = error instanceof AuthError ? error.status : 503;
+    return Response.json({ error: error instanceof Error ? error.message : 'データを読み込めませんでした', code: error instanceof AuthError ? error.code : undefined }, { status });
   }
 }
 
 export async function PUT(request: Request) {
   try {
-    const session = await currentSession();
-    if (!session) return Response.json({ error: 'ログインが必要です' }, { status: 401 });
+    const session = await requireCrmSession();
     const parsed = dataSchema.safeParse(await request.json());
     if (!parsed.success) return Response.json({ error: '入力内容を確認してください' }, { status: 400 });
     const master = await readMasterData();
-    const next = session.isAdmin ? parsed.data : mergeStaffData(master, parsed.data, session);
+    const next = session.isAdmin ? parsed.data : mergeAgentData(master, parsed.data, session);
     const database = env.DB;
     if (!database) throw new Error('Database binding unavailable');
-    await database.prepare(
-      `INSERT INTO crm_state (workspace_id, data, updated_at) VALUES (?, ?, ?)
-       ON CONFLICT(workspace_id) DO UPDATE SET data = excluded.data, updated_at = excluded.updated_at`,
-    ).bind(workspace, JSON.stringify(next), Date.now()).run();
+    await database.prepare(`INSERT INTO crm_state (workspace_id, data, updated_at) VALUES (?, ?, ?)
+      ON CONFLICT(workspace_id) DO UPDATE SET data = excluded.data, updated_at = excluded.updated_at`)
+      .bind(workspace, JSON.stringify(next), Date.now()).run();
     return Response.json({ ok: true, savedAt: new Date().toISOString() });
   } catch (error) {
-    console.error('CRM write failed', error);
-    return Response.json({ error: error instanceof Error ? error.message : '保存できませんでした。もう一度お試しください' }, { status: 503 });
+    const status = error instanceof AuthError ? error.status : 503;
+    return Response.json({ error: error instanceof Error ? error.message : '保存できませんでした。もう一度お試しください' }, { status });
   }
 }

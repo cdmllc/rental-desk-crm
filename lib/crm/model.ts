@@ -47,13 +47,13 @@ export function defaultStatusesForCategory(category: (typeof businessCategories)
 }
 
 export const defaultProducts = [
-  { id: 'product-rental', category: 'real-estate', name: '賃貸仲介', unitPrice: 0, active: true, version: 1, statuses: defaultStatusesForCategory('real-estate') },
-  { id: 'product-career', category: 'recruitment', name: '人材紹介', unitPrice: 300000, active: true, version: 1, statuses: defaultStatusesForCategory('recruitment') },
-  { id: 'product-hiring', category: 'recruitment', name: '採用支援', unitPrice: 100000, active: true, version: 1, statuses: defaultStatusesForCategory('recruitment') },
-  { id: 'product-electricity', category: 'lifeline', name: '電気', unitPrice: 12000, active: true, version: 1, statuses: defaultStatusesForCategory('lifeline') },
-  { id: 'product-gas', category: 'lifeline', name: 'ガス', unitPrice: 10000, active: true, version: 1, statuses: defaultStatusesForCategory('lifeline') },
-  { id: 'product-internet', category: 'lifeline', name: 'インターネット', unitPrice: 25000, active: true, version: 1, statuses: defaultStatusesForCategory('lifeline') },
-  { id: 'product-water', category: 'lifeline', name: 'ウォーターサーバー', unitPrice: 15000, active: true, version: 1, statuses: defaultStatusesForCategory('lifeline') },
+  { id: 'product-rental', category: 'real-estate', name: '賃貸仲介', unitPrice: 0, costUnitPrice: 0, active: true, version: 1, statuses: defaultStatusesForCategory('real-estate') },
+  { id: 'product-career', category: 'recruitment', name: '人材紹介', unitPrice: 300000, costUnitPrice: 0, active: true, version: 1, statuses: defaultStatusesForCategory('recruitment') },
+  { id: 'product-hiring', category: 'recruitment', name: '採用支援', unitPrice: 100000, costUnitPrice: 0, active: true, version: 1, statuses: defaultStatusesForCategory('recruitment') },
+  { id: 'product-electricity', category: 'lifeline', name: '電気', unitPrice: 12000, costUnitPrice: 0, active: true, version: 1, statuses: defaultStatusesForCategory('lifeline') },
+  { id: 'product-gas', category: 'lifeline', name: 'ガス', unitPrice: 10000, costUnitPrice: 0, active: true, version: 1, statuses: defaultStatusesForCategory('lifeline') },
+  { id: 'product-internet', category: 'lifeline', name: 'インターネット', unitPrice: 25000, costUnitPrice: 0, active: true, version: 1, statuses: defaultStatusesForCategory('lifeline') },
+  { id: 'product-water', category: 'lifeline', name: 'ウォーターサーバー', unitPrice: 15000, costUnitPrice: 0, active: true, version: 1, statuses: defaultStatusesForCategory('lifeline') },
 ] as const;
 
 const text = z.string().max(5000);
@@ -71,7 +71,7 @@ export const customerSchema = z.object({
 export const dealSchema = z.object({
   ...base, customerId: text.min(1), assigneeUserId: text.default(''), status: text.min(1),
   category: z.enum(businessCategories).default('real-estate'), productId: text.default('product-rental'),
-  pricingMode: z.enum(['master', 'realEstate']).default('realEstate'), unitPrice: money.default(0), quantity: z.number().int().min(1).max(10000).default(1),
+  pricingMode: z.enum(['master', 'realEstate']).default('realEstate'), unitPrice: money.default(0), costUnitPrice: money.default(0), quantity: z.number().int().min(1).max(10000).default(1),
   property: text, room: text, rent: money, commonFee: money, management: text,
   viewingDate: date, applicationDate: date, contractDate: date, moveInDate: date,
   action: text, dueDate: date, brokerage: money, adMode: z.enum(['rate', 'amount']),
@@ -86,7 +86,7 @@ export const dealSchema = z.object({
 
 export const taskSchema = z.object({ ...base, dealId: text, assigneeUserId: text.default(''), title: text.min(1, 'タスク名を入力してください'), dueDate: date, owner: text, done: z.boolean() });
 export const statusOptionSchema = z.object({ id: z.string().min(1).max(100), label: z.string().trim().min(1).max(40), kind: z.enum(statusKinds) });
-const productInputSchema = z.object({ ...base, category: z.enum(businessCategories), name: z.string().trim().min(1).max(80), unitPrice: money, active: z.boolean(), statuses: z.array(statusOptionSchema).min(1).max(100).optional() });
+const productInputSchema = z.object({ ...base, category: z.enum(businessCategories), name: z.string().trim().min(1).max(80), unitPrice: money, costUnitPrice: money.default(0), active: z.boolean(), statuses: z.array(statusOptionSchema).min(1).max(100).optional() });
 export const productSchema = productInputSchema.transform(product => ({ ...product, statuses: product.statuses ?? defaultStatusesForCategory(product.category) }));
 export const settingsSchema = z.object({ ...base, partnerRate: z.number().min(0).max(100), statuses: z.array(statusOptionSchema).min(1).max(100).default(defaultStatuses.map(item => ({ ...item }))) });
 export const dataSchema = z.object({
@@ -132,7 +132,10 @@ export function totals(deal: Pick<Deal, 'brokerage' | 'adMode' | 'adBase' | 'adR
   return { ad, gross, partner, net: gross - partner };
 }
 
-export const expectedIncome = (deal: Deal) => deal.pricingMode === 'master' ? deal.unitPrice * deal.quantity : totals(deal).net;
+export const dealRevenue = (deal: Deal) => deal.pricingMode === 'master' ? deal.unitPrice * deal.quantity : totals(deal).gross;
+export const dealCost = (deal: Deal) => deal.pricingMode === 'master' ? deal.costUnitPrice * deal.quantity : totals(deal).partner;
+export const dealGrossProfit = (deal: Deal) => dealRevenue(deal) - dealCost(deal);
+export const expectedIncome = dealGrossProfit;
 export const yen = (value: number) => new Intl.NumberFormat('ja-JP', { style: 'currency', currency: 'JPY' }).format(value);
 export const today = () => new Intl.DateTimeFormat('sv-SE', { timeZone: 'Asia/Tokyo' }).format(new Date());
 export function shiftMonth(value: string, offset: number) { const [year, monthValue] = value.split('-').map(Number); return new Date(Date.UTC(year, monthValue - 1 + offset, 1)).toISOString().slice(0, 7); }
@@ -154,7 +157,7 @@ export function emptyData(): Data {
 
 export function emptyDeal(customerId: string, rate: number, status: string, assigneeUserId = DEFAULT_ADMIN_USER_ID): Deal {
   return {
-    id: crypto.randomUUID(), version: 0, customerId, assigneeUserId, status, category: 'real-estate', productId: 'product-rental', pricingMode: 'realEstate', unitPrice: 0, quantity: 1,
+    id: crypto.randomUUID(), version: 0, customerId, assigneeUserId, status, category: 'real-estate', productId: 'product-rental', pricingMode: 'realEstate', unitPrice: 0, costUnitPrice: 0, quantity: 1,
     property: '', room: '', rent: 0, commonFee: 0, management: '', viewingDate: '', applicationDate: '', contractDate: '', moveInDate: '',
     action: '', dueDate: '', brokerage: 0, adMode: 'rate', adBase: 0, adRate: 100, adAmount: 0, other: 0, partnerRate: rate,
     paymentMonth: '', paymentDate: '', paidDate: '', paid: false, documents: [], note: '', history: [],

@@ -221,7 +221,7 @@ body { background: #f4f7fb; }
 .category-recruitment { --category-color: #7354c9; }
 .category-lifeline { --category-color: #138a72; }
 
-.metrics { grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; margin-bottom: 17px; }
+.metrics { grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 10px; margin-bottom: 17px; }
 .metric {
   min-height: 116px;
   padding: 17px 18px 15px;
@@ -256,6 +256,9 @@ body { background: #f4f7fb; }
 .action-cell { color: #344a67; font-size: 11px; }
 .task-row { padding: 10px 19px; border-top-color: #edf1f6; }
 .bars { height: 205px; }
+.combined-bars .bar-col { gap: 4px; }
+.combined-bars .bar-col > strong { font-size: 10px; }
+.combined-bars .bar-col > small { min-height: 22px; color: #8a97aa; font-size: 8px; text-align: center; }
 .bar { background: #ccdcf7; border-radius: 2px 2px 0 0; }
 .bar.current { background: #246fe1; }
 .status-track { background: #edf1f6; }
@@ -270,6 +273,10 @@ body { background: #f4f7fb; }
 .category-tabs button.active { color: #142640; }
 .category-badge { border-radius: 4px; }
 .toolbar { min-height: 64px; padding: 13px 16px; }
+.deals-toolbar { flex-wrap: wrap; }
+.deals-toolbar .search { flex: 1 1 260px; }
+.deals-toolbar select { min-width: 135px; }
+.filter-result { padding: 7px 16px; border-top: 1px solid #edf1f6; color: #75859a; background: #fbfcfe; font-size: 10px; }
 .list-panel th { color: #6c7e95; background: #f7f9fc; }
 .list-panel td { height: 59px; }
 .clickable:hover { background: #f6f9fd; }
@@ -290,7 +297,7 @@ body { background: #f4f7fb; }
 }
 .task-item { border-bottom-color: #e9eef4; }
 
-.deal-summary { grid-template-columns: 1fr 1.8fr .8fr 1.1fr; border-radius: 6px; }
+.deal-summary { grid-template-columns: 1fr 1.6fr .7fr 1fr 1fr; border-radius: 6px; }
 .price-note { grid-column: 1 / -1; padding: 10px 12px; border-radius: 6px; color: #66758a; background: #f6f8fb; font-size: 11px; }
 
 .settings-page { display: grid; gap: 15px; }
@@ -494,6 +501,7 @@ body { background: #f4f7fb; }
 .footnote { color: #8794a6; }
 
 @media (max-width: 1150px) {
+  .metrics { grid-template-columns: repeat(3, minmax(0, 1fr)); }
   .dashboard-grid { grid-template-columns: 1fr; }
   .settings-workspace { grid-template-columns: 250px minmax(0, 1fr); }
   .workflow-table-head, .workflow-row { grid-template-columns: 48px minmax(140px, 1fr) 120px 106px; }

@@ -14,7 +14,7 @@ export function sampleData(): Data {
   const stages: Deal['status'][] = ['審査中', '内見予定', '契約手続中', '物件提案中', '申込準備', '入居待ち', '完了', '保留'];
   const actions = ['収入証明を回収', '内見前日のご連絡', '契約書の内容確認', '希望条件に合う物件を提案', '申込書・本人確認書類を回収', '鍵の受け渡しを調整', '入金の確認', '引越し時期の確認'];
   const deals: Deal[] = customers.map((customer, index) => ({
-    id: `sample-d${index}`, version: 1, customerId: customer.id, assigneeUserId: customer.assigneeUserId, status: stages[index], category: 'real-estate', productId: 'product-rental', pricingMode: 'realEstate', unitPrice: 0, quantity: 1,
+    id: `sample-d${index}`, version: 1, customerId: customer.id, assigneeUserId: customer.assigneeUserId, status: stages[index], category: 'real-estate', productId: 'product-rental', pricingMode: 'realEstate', unitPrice: 0, costUnitPrice: 0, quantity: 1,
     property: properties[index], room: ['502', '301', '802', '205', '403', '601', '302', '101'][index], rent: [100000, 125000, 138000, 95000, 110000, 152000, 88000, 98000][index], commonFee: 8000,
     management: index % 2 ? '東京リビング管理' : 'シティプロパティ', viewingDate: relative(index - 8), applicationDate: index % 2 ? '' : relative(-4),
     contractDate: index === 2 || index === 5 ? `${month}-20` : index === 6 ? `${previous}-22` : '', moveInDate: index === 5 ? `${next}-01` : '',

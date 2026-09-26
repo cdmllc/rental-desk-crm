@@ -1,0 +1,99 @@
+.metrics {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.metric-1 {
+  border-color: #b9cff9;
+  background: #fafdff;
+}
+
+.metric-1 strong {
+  color: #155eef;
+}
+
+.metric-2 {
+  border-color: var(--border);
+  background: #fff;
+}
+
+.metric-2 strong {
+  color: inherit;
+}
+
+.metric-3 strong {
+  color: #b76731;
+}
+
+.deal-summary {
+  grid-template-columns: 1fr 1.8fr .8fr 1.1fr;
+}
+
+.settings-dialog {
+  max-width: 720px !important;
+  max-height: 90vh;
+  overflow-y: auto;
+}
+
+.status-editor {
+  display: grid;
+  gap: 9px;
+  margin-top: 6px;
+  padding-top: 18px;
+  border-top: 1px solid var(--border);
+}
+
+.status-editor-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 4px;
+}
+
+.status-editor-heading strong,
+.status-editor-heading small {
+  display: block;
+}
+
+.status-editor-heading strong {
+  font-size: 13px;
+}
+
+.status-editor-heading small {
+  margin-top: 3px;
+  color: #8c98aa;
+  font-size: 11px;
+}
+
+.status-editor-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 130px 36px;
+  gap: 8px;
+  align-items: center;
+}
+
+.settings-error {
+  color: #b84d3e;
+  font-size: 12px;
+}
+
+@media (max-width: 900px) {
+  .metrics {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .deal-summary {
+    grid-template-columns: 1fr 1fr;
+  }
+}
+
+@media (max-width: 560px) {
+  .metrics,
+  .deal-summary {
+    grid-template-columns: 1fr;
+  }
+
+  .status-editor-row {
+    grid-template-columns: minmax(0, 1fr) 105px 36px;
+  }
+}

@@ -12,7 +12,7 @@ export async function GET() {
     const row = await database.prepare(
       "SELECT data FROM crm_state WHERE workspace_id = ?",
     ).bind(workspace).first<{ data: string }>();
-    return Response.json(row ? JSON.parse(row.data) : sampleData());
+    return Response.json(row ? dataSchema.parse(JSON.parse(row.data)) : sampleData());
   } catch (error) {
     console.error("CRM read failed", error);
     return Response.json({ error: "データを読み込めませんでした" }, { status: 503 });

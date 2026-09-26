@@ -22,7 +22,7 @@ type UserRow = {
 };
 type AccessRequestRow = {
   id: string; email: string; display_name: string; password_salt: string; password_hash: string;
-  status: AccessRequest['status']; requested_at: number; reviewed_at: number | null; reviewed_by: string | null;
+  requested_portal: AccessRequest['requestedPortal']; status: AccessRequest['status']; requested_at: number; reviewed_at: number | null; reviewed_by: string | null;
 };
 
 function database() {
@@ -65,6 +65,7 @@ export async function ensureAuthSchema() {
       display_name TEXT NOT NULL,
       password_salt TEXT NOT NULL,
       password_hash TEXT NOT NULL,
+      requested_portal TEXT NOT NULL DEFAULT 'crm',
       status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending','approved','rejected')),
       requested_at INTEGER NOT NULL,
       reviewed_at INTEGER,
@@ -78,6 +79,8 @@ export async function ensureAuthSchema() {
   if (addedWorkforceAccess) await db.prepare("ALTER TABLE crm_users ADD COLUMN workforce_access TEXT NOT NULL DEFAULT 'none'").run();
   if (addedCrmAccess) await db.prepare("UPDATE crm_users SET crm_access=CASE WHEN role='admin' THEN 'admin' ELSE 'own' END").run();
   if (addedWorkforceAccess) await db.prepare("UPDATE crm_users SET workforce_access=CASE WHEN role='admin' THEN 'admin' ELSE 'none' END").run();
+  const requestColumns = await db.prepare('PRAGMA table_info(crm_access_requests)').all<{ name: string }>();
+  if (!(requestColumns.results || []).some(column => column.name === 'requested_portal')) await db.prepare("ALTER TABLE crm_access_requests ADD COLUMN requested_portal TEXT NOT NULL DEFAULT 'crm'").run();
   await db.batch([
     ...BOOTSTRAP_USERS.map(user => db.prepare(`INSERT OR IGNORE INTO crm_users
       (id,email,display_name,role,crm_access,workforce_access,password_salt,password_hash,must_change_password,active,failed_attempts,locked_until,created_at,updated_at)
@@ -195,26 +198,27 @@ export async function updateUser(actor: CrmSession, input: { id: string; display
   return publicUser(row);
 }
 
-export async function submitAccessRequest(input: { email: string; displayName: string; password: string }): Promise<AccessRequest> {
+export async function submitAccessRequest(input: { email: string; displayName: string; password: string; requestedPortal: 'crm' | 'staff' }): Promise<AccessRequest> {
   await ensureAuthSchema();
   validatePassword(input.password);
   const email = input.email.trim().toLowerCase(), displayName = input.displayName.trim();
+  const requestedPortal = input.requestedPortal === 'staff' ? 'staff' : 'crm';
   if (!/^\S+@\S+\.\S+$/.test(email) || !displayName) throw new AuthError('氏名とメールアドレスを確認してください', 400);
   if (await findUserByEmail(email)) throw new AuthError('このメールアドレスは登録済みです', 409);
   const existing = await database().prepare('SELECT * FROM crm_access_requests WHERE email=? COLLATE NOCASE').bind(email).first<AccessRequestRow>();
   const password = await createPasswordRecord(input.password), now = Date.now(), id = existing?.id || crypto.randomUUID();
   await database().prepare(`INSERT INTO crm_access_requests
-    (id,email,display_name,password_salt,password_hash,status,requested_at,reviewed_at,reviewed_by)
-    VALUES (?,?,?,?,?,'pending',?,NULL,NULL)
-    ON CONFLICT(email) DO UPDATE SET display_name=excluded.display_name,password_salt=excluded.password_salt,password_hash=excluded.password_hash,status='pending',requested_at=excluded.requested_at,reviewed_at=NULL,reviewed_by=NULL`)
-    .bind(id, email, displayName, password.salt, password.hash, now).run();
-  return { id, email, displayName, status: 'pending', requestedAt: now, reviewedAt: null };
+    (id,email,display_name,password_salt,password_hash,requested_portal,status,requested_at,reviewed_at,reviewed_by)
+    VALUES (?,?,?,?,?,?,'pending',?,NULL,NULL)
+    ON CONFLICT(email) DO UPDATE SET display_name=excluded.display_name,password_salt=excluded.password_salt,password_hash=excluded.password_hash,requested_portal=excluded.requested_portal,status='pending',requested_at=excluded.requested_at,reviewed_at=NULL,reviewed_by=NULL`)
+    .bind(id, email, displayName, password.salt, password.hash, requestedPortal, now).run();
+  return { id, email, displayName, requestedPortal, status: 'pending', requestedAt: now, reviewedAt: null };
 }
 
 export async function listAccessRequests(): Promise<AccessRequest[]> {
   await ensureAuthSchema();
   const result = await database().prepare("SELECT * FROM crm_access_requests WHERE status='pending' ORDER BY requested_at ASC").all<AccessRequestRow>();
-  return (result.results || []).map(row => ({ id: row.id, email: row.email, displayName: row.display_name, status: row.status, requestedAt: row.requested_at, reviewedAt: row.reviewed_at }));
+  return (result.results || []).map(row => ({ id: row.id, email: row.email, displayName: row.display_name, requestedPortal: row.requested_portal || 'crm', status: row.status, requestedAt: row.requested_at, reviewedAt: row.reviewed_at }));
 }
 
 export async function reviewAccessRequest(actor: CrmSession, id: string, decision: 'approve' | 'reject'): Promise<{ request: AccessRequest; user?: CrmUser }> {
@@ -223,19 +227,20 @@ export async function reviewAccessRequest(actor: CrmSession, id: string, decisio
   const now = Date.now();
   if (decision === 'reject') {
     await database().prepare("UPDATE crm_access_requests SET status='rejected',reviewed_at=?,reviewed_by=? WHERE id=?").bind(now, actor.userId, id).run();
-    return { request: { id, email: request.email, displayName: request.display_name, status: 'rejected', requestedAt: request.requested_at, reviewedAt: now } };
+    return { request: { id, email: request.email, displayName: request.display_name, requestedPortal: request.requested_portal || 'crm', status: 'rejected', requestedAt: request.requested_at, reviewedAt: now } };
   }
   if (await findUserByEmail(request.email)) throw new AuthError('このメールアドレスはすでに登録済みです', 409);
   const userId = crypto.randomUUID();
+  const staffPortal = request.requested_portal === 'staff';
   await database().batch([
     database().prepare(`INSERT INTO crm_users
       (id,email,display_name,role,crm_access,workforce_access,password_salt,password_hash,must_change_password,active,failed_attempts,locked_until,created_at,updated_at)
-      VALUES (?,?,?,'agent','own','none',?,?,0,1,0,0,?,?)`).bind(userId, request.email, request.display_name, request.password_salt, request.password_hash, now, now),
+      VALUES (?,?,?,'agent',?,?,?,?,0,1,0,0,?,?)`).bind(userId, request.email, request.display_name, staffPortal ? 'none' : 'own', staffPortal ? 'staff' : 'none', request.password_salt, request.password_hash, now, now),
     database().prepare("UPDATE crm_access_requests SET status='approved',reviewed_at=?,reviewed_by=? WHERE id=?").bind(now, actor.userId, id),
   ]);
   const user = await database().prepare('SELECT * FROM crm_users WHERE id=?').bind(userId).first<UserRow>();
   if (!user) throw new Error('User approval failed');
-  return { request: { id, email: request.email, displayName: request.display_name, status: 'approved', requestedAt: request.requested_at, reviewedAt: now }, user: publicUser(user) };
+  return { request: { id, email: request.email, displayName: request.display_name, requestedPortal: request.requested_portal || 'crm', status: 'approved', requestedAt: request.requested_at, reviewedAt: now }, user: publicUser(user) };
 }
 
 export async function revokeSession(token: string | undefined) {

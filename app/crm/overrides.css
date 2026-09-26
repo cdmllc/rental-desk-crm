@@ -476,6 +476,8 @@ body { background: #f4f7fb; }
 .approval-heading + .approval-row { border-top: 0; }
 .approval-row strong, .approval-row small { display: block; }
 .approval-row strong { color: #1b2d47; font-size: 12px; }
+.request-kind { display: inline-flex; margin-left: 8px; padding: 2px 7px; border-radius: 999px; color: #17625a; background: #dff5ee; font-size: 8px; font-style: normal; vertical-align: 1px; }
+.request-kind.crm { color: #285eae; background: #e6efff; }
 .approval-row small { margin-top: 2px; color: #7c8b9f; font-size: 10px; }
 .staff-page .toolbar { justify-content: space-between; }
 .staff-page select { min-width: 110px; height: 32px; font-size: 10px; }

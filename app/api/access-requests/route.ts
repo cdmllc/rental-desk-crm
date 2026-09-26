@@ -8,9 +8,9 @@ function responseError(error: unknown) {
 
 export async function POST(request: Request) {
   try {
-    const body = await request.json() as { email?: string; displayName?: string; password?: string };
+    const body = await request.json() as { email?: string; displayName?: string; password?: string; requestedPortal?: 'crm' | 'staff' };
     if (!body.email || !body.displayName || !body.password) throw new AuthError('すべての項目を入力してください', 400);
-    return Response.json({ request: await submitAccessRequest({ email: body.email, displayName: body.displayName, password: body.password }) });
+    return Response.json({ request: await submitAccessRequest({ email: body.email, displayName: body.displayName, password: body.password, requestedPortal: body.requestedPortal === 'staff' ? 'staff' : 'crm' }) });
   } catch (error) { return responseError(error); }
 }
 

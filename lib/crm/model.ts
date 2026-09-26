@@ -120,7 +120,7 @@ export type Product = z.infer<typeof productSchema>;
 export type Data = z.infer<typeof dataSchema>;
 export type UserRole = (typeof userRoles)[number];
 export type CrmUser = { id: string; email: string; displayName: string; role: UserRole; crmAccess: CrmAccess; workforceAccess: WorkforceAccess; active: boolean; mustChangePassword: boolean; createdAt: number; updatedAt: number };
-export type AccessRequest = { id: string; email: string; displayName: string; status: 'pending' | 'approved' | 'rejected'; requestedAt: number; reviewedAt: number | null };
+export type AccessRequest = { id: string; email: string; displayName: string; requestedPortal: 'crm' | 'staff'; status: 'pending' | 'approved' | 'rejected'; requestedAt: number; reviewedAt: number | null };
 export type CrmSession = { userId: string; email: string; displayName: string; role: UserRole; isAdmin: boolean; crmAccess: CrmAccess; workforceAccess: WorkforceAccess; mustChangePassword: boolean };
 export type CrmPayload = { data: Data; session: CrmSession };
 

@@ -37,6 +37,7 @@ export const crmAccessRequests = sqliteTable("crm_access_requests", {
   displayName: text("display_name").notNull(),
   passwordSalt: text("password_salt").notNull(),
   passwordHash: text("password_hash").notNull(),
+  requestedPortal: text("requested_portal", { enum: ["crm", "staff"] }).notNull().default("crm"),
   status: text("status", { enum: ["pending", "approved", "rejected"] }).notNull().default("pending"),
   requestedAt: integer("requested_at").notNull(),
   reviewedAt: integer("reviewed_at"),

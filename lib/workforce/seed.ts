@@ -1,9 +1,6 @@
-import { today } from '@/lib/crm/model';
-import type { DailyReport, WorkforceData, WorkforceStaff } from './model';
+import type { WorkforceData } from './model';
 
 export function sampleWorkforceData(): WorkforceData {
-  const day = today(), month = day.slice(0, 7);
-  const relative = (offset: number) => new Date(Date.parse(`${day}T12:00:00Z`) + offset * 86400000).toISOString().slice(0, 10);
   const companies = [
     { id: 'company-cdm', code: 'CDM', name: 'CDM合同会社', active: true },
     { id: 'company-east', code: 'EAST', name: 'イーストパートナーズ', active: true },
@@ -35,40 +32,16 @@ export function sampleWorkforceData(): WorkforceData {
     { id: 'perf-mobile-order', code: 'ORDER', name: '契約数', projectId: 'project-mobile', unit: '件', active: true },
     { id: 'perf-event-contact', code: 'CONTACT', name: '声掛け数', projectId: 'project-event', unit: '件', active: true },
   ];
-  const staffSource = [
-    ['staff-1', '山田 大輔', 'd.yamada@example.com', 'company-cdm', 'employment-direct', 14000],
-    ['staff-2', '佐藤 健一', 'k.sato@example.com', 'company-cdm', 'employment-direct', 13500],
-    ['staff-3', '鈴木 翔太', 's.suzuki@example.com', 'company-east', 'employment-partner', 13000],
-    ['staff-4', '高橋 美咲', 'm.takahashi@example.com', 'company-east', 'employment-partner', 12500],
-    ['staff-5', '田中 真一', 's.tanaka@example.com', 'company-link', 'employment-partner', 12000],
-    ['staff-6', '伊藤 彩', 'a.ito@example.com', 'company-link', 'employment-partner', 12000],
-    ['staff-7', '渡辺 直樹', 'n.watanabe@example.com', 'company-cdm', 'employment-direct', 13500],
-    ['staff-8', '中村 遥', 'h.nakamura@example.com', 'company-link', 'employment-partner', 12500],
-  ] as const;
-  const staff: WorkforceStaff[] = staffSource.map(([id, name, email, companyId, employmentTypeId, dailyRate], index) => ({
-    id, userId: '', name, email, companyId, employmentTypeId, status: index === 7 ? 'inactive' : 'active',
-    payRates: [{ id: `${id}-rate-1`, startDate: `${month}-01`, endDate: '', dailyRate }],
-  }));
-  const reports: DailyReport[] = [];
-  for (let offset = -18; offset <= 0; offset += 1) {
-    if (new Date(`${relative(offset)}T12:00:00`).getDay() === 0) continue;
-    staff.slice(0, 7).forEach((person, index) => {
-      if ((Math.abs(offset) + index) % 5 === 0) return;
-      const status: DailyReport['status'] = offset === 0 ? index < 3 ? 'approved' : index < 5 ? 'submitted' : 'draft' : offset === -1 && index === 2 ? 'returned' : 'approved';
-      const projectId = projects[(index + Math.abs(offset)) % projects.length].id;
-      const item = performanceItems.find(candidate => candidate.projectId === projectId);
-      reports.push({
-        id: `report-${offset}-${index}`, date: relative(offset), staffId: person.id, projectId,
-        siteId: sites[(index + Math.abs(offset)) % sites.length].id, workTypeId: index === 6 ? 'work-support' : 'work-normal',
-        performance: item ? { [item.id]: Math.max(1, 8 - index) } : {}, reflection: index % 2 ? 'お客様への声掛け数を増やし、次回提案につなげます。' : '成約導線を整理し、チーム内で成功事例を共有しました。',
-        status, returnComment: status === 'returned' ? '成績数値と振り返りを追記してください。' : '',
-        submittedAt: status === 'draft' ? '' : `${relative(offset)}T19:00:00+09:00`, reviewedAt: status === 'approved' ? `${relative(offset)}T20:00:00+09:00` : '', reviewedBy: status === 'approved' ? 'CDM 管理者' : '',
-      });
-    });
-  }
-  return { companies, employmentTypes, projects, sites, workTypes, performanceItems, staff, reports, monthlySnapshots: [], revenuePlans: [
-    { id: 'revenue-1', month, projectId: 'project-fiber', revenue: 3200000, cost: 1880000, note: '運用開始時の計画値' },
-    { id: 'revenue-2', month, projectId: 'project-mobile', revenue: 2100000, cost: 1260000, note: '運用開始時の計画値' },
-  ], updatedAt: new Date().toISOString() };
+  return { companies, employmentTypes, projects, sites, workTypes, performanceItems, staff: [], reports: [], monthlySnapshots: [], revenuePlans: [], updatedAt: new Date().toISOString() };
 }
 
+const sampleStaffIds = new Set(Array.from({ length: 8 }, (_, index) => `staff-${index + 1}`));
+const sampleRevenueIds = new Set(['revenue-1', 'revenue-2']);
+
+export function removeSampleWorkforceData(data: WorkforceData): WorkforceData {
+  const staff = data.staff.filter(item => !sampleStaffIds.has(item.id));
+  const reports = data.reports.filter(report => !sampleStaffIds.has(report.staffId) && !/^report--?\d+-\d+$/.test(report.id));
+  const monthlySnapshots = data.monthlySnapshots.map(snapshot => ({ ...snapshot, entries: snapshot.entries.filter(entry => !sampleStaffIds.has(entry.staffId)) })).filter(snapshot => snapshot.entries.length > 0);
+  const revenuePlans = data.revenuePlans.filter(plan => !sampleRevenueIds.has(plan.id));
+  return { ...data, staff, reports, monthlySnapshots, revenuePlans };
+}

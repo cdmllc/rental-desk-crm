@@ -2,7 +2,7 @@ import { env } from 'cloudflare:workers';
 import { AuthError, currentCrmSession } from '@/lib/crm/auth';
 import { today } from '@/lib/crm/model';
 import { dailyReportSchema, workforceDataSchema, type WorkforceData, type WorkforceStaff } from '@/lib/workforce/model';
-import { sampleWorkforceData } from '@/lib/workforce/seed';
+import { removeSampleWorkforceData, sampleWorkforceData } from '@/lib/workforce/seed';
 
 export const dynamic = 'force-dynamic';
 const workspace = 'primary';
@@ -20,7 +20,10 @@ async function database() {
 async function loadData() {
   const db = await database();
   const row = await db.prepare('SELECT data FROM workforce_state WHERE workspace_id=?').bind(workspace).first<{ data: string }>();
-  return row ? workforceDataSchema.parse(JSON.parse(row.data)) : sampleWorkforceData();
+  const parsed = row ? workforceDataSchema.parse(JSON.parse(row.data)) : sampleWorkforceData();
+  const cleaned = removeSampleWorkforceData(parsed);
+  if (row && JSON.stringify(cleaned) !== JSON.stringify(parsed)) return saveData(cleaned);
+  return cleaned;
 }
 
 async function saveData(data: WorkforceData) {
@@ -87,6 +90,8 @@ export async function PUT(request: Request) {
     if (report.date > today()) throw new AuthError('未来の日付の日報は登録できません', 400);
     if (existing?.status === 'approved' || existing?.status === 'submitted') throw new AuthError('提出済みまたは承認済みの日報は編集できません', 409);
     if (report.status !== 'draft' && report.status !== 'submitted') throw new AuthError('保存状態を確認してください', 400);
+    if (report.status === 'submitted' && report.transportationCost > 0 && !report.transportationReceipt) throw new AuthError('交通費を申請する場合は領収書を添付してください', 400);
+    if (report.transportationReceipt && !/^data:(image\/[a-zA-Z0-9.+-]+|application\/pdf);base64,/.test(report.transportationReceipt)) throw new AuthError('領収書のファイル形式を確認してください', 400);
     if (data.reports.some(item => item.staffId === staff.id && item.date === report.date && item.id !== report.id)) throw new AuthError('この日付の日報は登録済みです', 409);
     if (!data.projects.some(item => item.id === report.projectId && item.active) || !data.sites.some(item => item.id === report.siteId && item.active) || !data.workTypes.some(item => item.id === report.workTypeId && item.active)) throw new AuthError('案件・現場・稼働区分を確認してください', 400);
     const allowedPerformance = new Set(data.performanceItems.filter(item => item.projectId === report.projectId && item.active).map(item => item.id));

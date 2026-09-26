@@ -151,3 +151,5 @@
   .wf-revenue-head { grid-template-columns: repeat(3,1fr); }
   .wf-revenue-head > div:first-child { grid-column: 1/-1; }
 }
+
+.wf-row-actions{display:flex;gap:6px;flex-wrap:wrap}.wf-transport-detail h3{display:flex;align-items:center;gap:6px}.wf-transport-detail h3 svg{width:15px;color:#1761c9}.wf-transport-detail a{color:#1761c9;text-decoration:underline;font-weight:700}

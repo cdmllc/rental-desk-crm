@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { CalendarDays, Check, ChevronRight, ClipboardList, CircleUserRound, Clock3, Home, KeyRound, LogOut, Send, WalletCards } from 'lucide-react';
+import { CalendarDays, Check, ChevronRight, ClipboardList, CircleUserRound, Clock3, Home, KeyRound, LogOut, ReceiptText, Send, Trash2, Upload, WalletCards } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { NativeSelect } from '@/components/ui/native-select';
@@ -17,6 +17,31 @@ type Payload = { data: WorkforceData; session: CrmSession };
 
 const nameOf = (rows: { id: string; name: string }[], id: string) => rows.find(row => row.id === id)?.name || '未設定';
 const tone = (status: DailyReport['status']) => `sp-status ${status}`;
+const receiptLimit = 1_500_000;
+
+const readAsDataUrl = (blob: Blob) => new Promise<string>((resolve, reject) => {
+  const reader = new FileReader();
+  reader.onload = () => resolve(String(reader.result || ''));
+  reader.onerror = () => reject(new Error('領収書を読み込めませんでした'));
+  reader.readAsDataURL(blob);
+});
+
+async function prepareReceipt(file: File) {
+  if (file.type === 'application/pdf') {
+    if (file.size > receiptLimit) throw new Error('PDFは1.5MB以下にしてください');
+    return readAsDataUrl(file);
+  }
+  if (!file.type.startsWith('image/')) throw new Error('画像またはPDFを選択してください');
+  const image = await createImageBitmap(file), scale = Math.min(1, 1600 / Math.max(image.width, image.height));
+  const canvas = document.createElement('canvas');
+  canvas.width = Math.max(1, Math.round(image.width * scale)); canvas.height = Math.max(1, Math.round(image.height * scale));
+  canvas.getContext('2d')?.drawImage(image, 0, 0, canvas.width, canvas.height); image.close();
+  const encode = (quality: number) => new Promise<Blob>((resolve, reject) => canvas.toBlob(blob => blob ? resolve(blob) : reject(new Error('領収書を変換できませんでした')), 'image/jpeg', quality));
+  let blob = await encode(0.78);
+  if (blob.size > receiptLimit) blob = await encode(0.55);
+  if (blob.size > receiptLimit) throw new Error('画像サイズを小さくしてから再度お試しください');
+  return readAsDataUrl(blob);
+}
 
 function Brand() {
   return <div className="sp-brand"><span className="sp-logo"/><div><strong>CDM STAFF</strong><small>稼働レポート</small></div></div>;
@@ -76,7 +101,7 @@ function PayView({ data }: { data: WorkforceData }) {
   const [month, setMonth] = useState(today().slice(0, 7)), staff = data.staff[0];
   const snapshot = snapshotForMonth(data, month), finalEntry = snapshot?.entries.find(entry => entry.staffId === staff.id), draftEntry = calculateMonthlyEntries(data, month)[0];
   const entry = finalEntry || draftEntry, finalized = snapshot?.status === 'finalized';
-  return <><div className="sp-page-head"><div><h1>報酬</h1><p>承認済み日報を基に集計</p></div></div><label className="sp-month"><span>対象月</span><Input type="month" value={month} onChange={event => setMonth(event.target.value)}/></label><section className="sp-pay-card"><span>{monthLabel(month)} 支給額</span><strong>{yen(entry?.amount || 0)}</strong><em>{finalized ? `確定済み v${snapshot?.version}` : '予定額'}</em><div><p><span>承認済み稼働</span><strong>{entry?.days || 0}日</strong></p><p><span>基本額</span><strong>{yen(entry?.baseAmount || 0)}</strong></p><p><span>調整額</span><strong>{yen(entry?.adjustment || 0)}</strong></p></div></section><section className="sp-section"><div className="sp-section-title"><div><h2>単価内訳</h2><p>日報の日付に適用された日給</p></div></div><div className="sp-breakdown">{entry?.rateBreakdown.map(row => <div key={`${row.dailyRate}-${row.dates[0]}`}><span>{yen(row.dailyRate)} × {row.days}日</span><strong>{yen(row.amount)}</strong></div>)}{!entry && <p className="sp-empty">この月の承認済み日報はありません</p>}</div></section></>;
+  return <><div className="sp-page-head"><div><h1>報酬</h1><p>承認済み日報を基に集計</p></div></div><label className="sp-month"><span>対象月</span><Input type="month" value={month} onChange={event => setMonth(event.target.value)}/></label><section className="sp-pay-card"><span>{monthLabel(month)} 支給額</span><strong>{yen(entry?.amount || 0)}</strong><em>{finalized ? `確定済み v${snapshot?.version}` : '予定額'}</em><div><p><span>承認済み稼働</span><strong>{entry?.days || 0}日</strong></p><p><span>基本額</span><strong>{yen(entry?.baseAmount || 0)}</strong></p><p><span>交通費</span><strong>{yen(entry?.transportationAmount || 0)}</strong></p><p><span>調整額</span><strong>{yen(entry?.adjustment || 0)}</strong></p></div></section><section className="sp-section"><div className="sp-section-title"><div><h2>単価内訳</h2><p>日報の日付に適用された日給</p></div></div><div className="sp-breakdown">{entry?.rateBreakdown.map(row => <div key={`${row.dailyRate}-${row.dates[0]}`}><span>{yen(row.dailyRate)} × {row.days}日</span><strong>{yen(row.amount)}</strong></div>)}{!entry && <p className="sp-empty">この月の承認済み日報はありません</p>}</div></section></>;
 }
 
 function AccountView({ data, session, logout, openCrm }: { data: WorkforceData; session: CrmSession; logout: () => void; openCrm: () => void }) {
@@ -87,11 +112,12 @@ function AccountView({ data, session, logout, openCrm }: { data: WorkforceData; 
 function ReportEditor({ data, report, close, saved }: { data: WorkforceData; report: DailyReport | null; close: () => void; saved: (data: WorkforceData) => void }) {
   const staff = data.staff[0], editable = !report || report.status === 'draft' || report.status === 'returned';
   const firstProject = data.projects.find(item => item.active)?.id || '';
-  const [draft, setDraft] = useState<DailyReport>(() => report ? structuredClone(report) : { id: crypto.randomUUID(), date: today(), staffId: staff.id, projectId: firstProject, siteId: data.sites.find(item => item.active)?.id || '', workTypeId: data.workTypes.find(item => item.active)?.id || '', performance: {}, reflection: '', status: 'draft', returnComment: '', submittedAt: '', reviewedAt: '', reviewedBy: '' });
+  const [draft, setDraft] = useState<DailyReport>(() => report ? structuredClone(report) : { id: crypto.randomUUID(), date: today(), staffId: staff.id, projectId: firstProject, siteId: data.sites.find(item => item.active)?.id || '', workTypeId: data.workTypes.find(item => item.active)?.id || '', performance: {}, reflection: '', transportationCost: 0, transportationReceipt: '', transportationReceiptName: '', status: 'draft', returnComment: '', submittedAt: '', reviewedAt: '', reviewedBy: '' });
   const [saving, setSaving] = useState(false);
   const items = data.performanceItems.filter(item => item.active && item.projectId === draft.projectId);
   const patch = <K extends keyof DailyReport>(key: K, value: DailyReport[K]) => setDraft(current => ({ ...current, [key]: value }));
   const save = async (status: 'draft' | 'submitted') => {
+    if (status === 'submitted' && draft.transportationCost > 0 && !draft.transportationReceipt) return toast.error('交通費を申請する場合は領収書を添付してください');
     setSaving(true);
     try {
       const response = await fetch('/api/staff', { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ report: { ...draft, status } }) });
@@ -101,7 +127,7 @@ function ReportEditor({ data, report, close, saved }: { data: WorkforceData; rep
     } catch (failure) { toast.error(failure instanceof Error ? failure.message : '日報を保存できませんでした'); }
     finally { setSaving(false); }
   };
-  return <div className="sp-editor"><header><button onClick={close}>閉じる</button><strong>{report ? `${shortDate(report.date)}の日報` : '日報を作成'}</strong><span/></header><main>{report?.returnComment && <section className="sp-return"><strong>差戻しコメント</strong><p>{report.returnComment}</p></section>}<div className="sp-form"><label><span>稼働日</span><Input disabled={!editable} type="date" max={today()} value={draft.date} onChange={event => patch('date', event.target.value)}/></label><label><span>案件</span><NativeSelect disabled={!editable} value={draft.projectId} onChange={event => setDraft({ ...draft, projectId: event.target.value, performance: {} })}>{data.projects.filter(item => item.active).map(item => <option value={item.id} key={item.id}>{item.name}</option>)}</NativeSelect></label><label><span>現場</span><NativeSelect disabled={!editable} value={draft.siteId} onChange={event => patch('siteId', event.target.value)}>{data.sites.filter(item => item.active).map(item => <option value={item.id} key={item.id}>{item.name}</option>)}</NativeSelect></label><label><span>稼働区分</span><NativeSelect disabled={!editable} value={draft.workTypeId} onChange={event => patch('workTypeId', event.target.value)}>{data.workTypes.filter(item => item.active).map(item => <option value={item.id} key={item.id}>{item.name}</option>)}</NativeSelect></label>{items.length > 0 && <fieldset><legend>成績</legend>{items.map(item => <label key={item.id}><span>{item.name}（{item.unit}）</span><Input disabled={!editable} type="number" min="0" value={draft.performance[item.id] || 0} onChange={event => patch('performance', { ...draft.performance, [item.id]: Number(event.target.value) || 0 })}/></label>)}</fieldset>}<label><span>振り返り・共有事項</span><Textarea disabled={!editable} rows={6} value={draft.reflection} onChange={event => patch('reflection', event.target.value)} placeholder="今日の成果、課題、引き継ぎ事項を入力"/></label></div>{editable ? <div className="sp-editor-actions"><Button variant="outline" disabled={saving} onClick={() => void save('draft')}>下書き保存</Button><Button disabled={saving || !draft.date || !draft.projectId || !draft.siteId || !draft.workTypeId} onClick={() => void save('submitted')}><Send/>提出する</Button></div> : <div className="sp-readonly"><Clock3/>提出後は管理者の確認が完了するまで編集できません。</div>}</main></div>;
+  return <div className="sp-editor"><header><button onClick={close}>閉じる</button><strong>{report ? `${shortDate(report.date)}の日報` : '日報を作成'}</strong><span/></header><main>{report?.returnComment && <section className="sp-return"><strong>差戻しコメント</strong><p>{report.returnComment}</p></section>}<div className="sp-form"><label><span>稼働日</span><Input disabled={!editable} type="date" max={today()} value={draft.date} onChange={event => patch('date', event.target.value)}/></label><label><span>案件</span><NativeSelect disabled={!editable} value={draft.projectId} onChange={event => setDraft({ ...draft, projectId: event.target.value, performance: {} })}>{data.projects.filter(item => item.active).map(item => <option value={item.id} key={item.id}>{item.name}</option>)}</NativeSelect></label><label><span>現場</span><NativeSelect disabled={!editable} value={draft.siteId} onChange={event => patch('siteId', event.target.value)}>{data.sites.filter(item => item.active).map(item => <option value={item.id} key={item.id}>{item.name}</option>)}</NativeSelect></label><label><span>稼働区分</span><NativeSelect disabled={!editable} value={draft.workTypeId} onChange={event => patch('workTypeId', event.target.value)}>{data.workTypes.filter(item => item.active).map(item => <option value={item.id} key={item.id}>{item.name}</option>)}</NativeSelect></label>{items.length > 0 && <fieldset><legend>成績</legend>{items.map(item => <label key={item.id}><span>{item.name}（{item.unit}）</span><Input disabled={!editable} type="number" min="0" value={draft.performance[item.id] || 0} onChange={event => patch('performance', { ...draft.performance, [item.id]: Number(event.target.value) || 0 })}/></label>)}</fieldset>}<section className="sp-transport"><div><ReceiptText/><span><strong>交通費申請</strong><small>申請する場合は領収書が必要です</small></span></div><label><span>交通費</span><Input disabled={!editable} type="number" min="0" value={draft.transportationCost} onChange={event => patch('transportationCost', Number(event.target.value) || 0)}/></label><label className="sp-receipt-upload"><span>領収書</span>{editable && <span className="sp-file-button"><Upload/>画像・PDFを選択<input type="file" accept="image/*,application/pdf" onChange={async event => { const file = event.target.files?.[0]; if (!file) return; try { const value = await prepareReceipt(file); setDraft(current => ({ ...current, transportationReceipt: value, transportationReceiptName: file.name })); } catch (error) { toast.error(error instanceof Error ? error.message : '領収書を添付できませんでした'); } finally { event.target.value = ''; } }}/></span>}{draft.transportationReceipt && <div className="sp-receipt-ready"><a href={draft.transportationReceipt} target="_blank" rel="noreferrer">{draft.transportationReceiptName || '領収書を表示'}</a>{editable && <button type="button" onClick={() => setDraft(current => ({ ...current, transportationReceipt: '', transportationReceiptName: '' }))}><Trash2/>削除</button>}</div>}</label></section><label><span>振り返り・共有事項</span><Textarea disabled={!editable} rows={6} value={draft.reflection} onChange={event => patch('reflection', event.target.value)} placeholder="今日の成果、課題、引き継ぎ事項を入力"/></label></div>{editable ? <div className="sp-editor-actions"><Button variant="outline" disabled={saving} onClick={() => void save('draft')}>下書き保存</Button><Button disabled={saving || !draft.date || !draft.projectId || !draft.siteId || !draft.workTypeId || draft.transportationCost > 0 && !draft.transportationReceipt} onClick={() => void save('submitted')}><Send/>提出する</Button></div> : <div className="sp-readonly"><Clock3/>提出後は管理者の確認が完了するまで編集できません。</div>}</main></div>;
 }
 
 export default function StaffPortal() {

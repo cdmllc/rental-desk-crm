@@ -25,6 +25,7 @@ export const workforceStaffSchema = z.object({
 export const dailyReportSchema = z.object({
   id, date, staffId: id, projectId: id, siteId: id, workTypeId: id,
   performance: z.record(z.string(), z.number().min(0).max(1000000)), reflection: z.string().max(5000),
+  transportationCost: money.min(0).default(0), transportationReceipt: z.string().max(2200000).default(''), transportationReceiptName: z.string().max(200).default(''),
   status: z.enum(['draft', 'submitted', 'approved', 'returned']), returnComment: z.string().max(2000),
   submittedAt: z.string().max(100), reviewedAt: z.string().max(100), reviewedBy: z.string().max(100),
 });
@@ -32,7 +33,7 @@ export const dailyReportSchema = z.object({
 const rateBreakdownSchema = z.object({ dailyRate: money.min(0), days: z.number().min(0).max(100), amount: money, dates: z.array(date) });
 const snapshotEntrySchema = z.object({
   staffId: id, companyId: id, days: z.number().min(0).max(100), baseAmount: money,
-  adjustment: money.default(0), amount: money, note: z.string().max(1000).default(''), rateBreakdown: z.array(rateBreakdownSchema),
+  transportationAmount: money.min(0).default(0), adjustment: money.default(0), amount: money, note: z.string().max(1000).default(''), rateBreakdown: z.array(rateBreakdownSchema),
 });
 export const monthlySnapshotSchema = z.object({
   id, month, status: z.enum(['draft', 'finalized']), finalizedAt: z.string().max(100), finalizedBy: z.string().max(100),
@@ -79,11 +80,11 @@ export function calculateMonthlyEntries(data: WorkforceData, targetMonth: string
     });
     const rateBreakdown = Array.from(groups.entries()).map(([dailyRate, dates]) => ({ dailyRate, days: dates.length, amount: dailyRate * dates.length, dates: dates.toSorted() }));
     const baseAmount = rateBreakdown.reduce((sum, row) => sum + row.amount, 0);
-    return { staffId: staff.id, companyId: staff.companyId, days: reports.length, baseAmount, adjustment: 0, amount: baseAmount, note: '', rateBreakdown };
+    const transportationAmount = reports.reduce((sum, report) => sum + report.transportationCost, 0);
+    return { staffId: staff.id, companyId: staff.companyId, days: reports.length, baseAmount, transportationAmount, adjustment: 0, amount: baseAmount + transportationAmount, note: '', rateBreakdown };
   }).filter(entry => entry.days > 0);
 }
 
 export function snapshotForMonth(data: WorkforceData, targetMonth: string) {
   return data.monthlySnapshots.find(snapshot => snapshot.month === targetMonth);
 }
-

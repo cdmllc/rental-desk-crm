@@ -82,10 +82,10 @@ export async function ensureAuthSchema() {
   const requestColumns = await db.prepare('PRAGMA table_info(crm_access_requests)').all<{ name: string }>();
   if (!(requestColumns.results || []).some(column => column.name === 'requested_portal')) await db.prepare("ALTER TABLE crm_access_requests ADD COLUMN requested_portal TEXT NOT NULL DEFAULT 'crm'").run();
   await db.batch([
-    ...BOOTSTRAP_USERS.map(user => db.prepare(`INSERT OR IGNORE INTO crm_users
+    ...BOOTSTRAP_USERS.filter(user => user.id === DEFAULT_ADMIN_USER_ID).map(user => db.prepare(`INSERT OR IGNORE INTO crm_users
       (id,email,display_name,role,crm_access,workforce_access,password_salt,password_hash,must_change_password,active,failed_attempts,locked_until,created_at,updated_at)
       VALUES (?,?,?,?,?,?,?,?,1,1,0,0,?,?)`).bind(user.id, user.email, user.displayName, user.role, user.crmAccess, user.workforceAccess, user.salt, user.hash, now, now)),
-    ...BOOTSTRAP_USERS.map(user => db.prepare(`UPDATE crm_users SET password_salt=?, password_hash=?, updated_at=?
+    ...BOOTSTRAP_USERS.filter(user => user.id === DEFAULT_ADMIN_USER_ID).map(user => db.prepare(`UPDATE crm_users SET password_salt=?, password_hash=?, updated_at=?
       WHERE id=? AND must_change_password=1 AND created_at=updated_at`).bind(user.salt, user.hash, now, user.id)),
   ]);
 }
@@ -196,6 +196,16 @@ export async function updateUser(actor: CrmSession, input: { id: string; display
   const row = await database().prepare('SELECT * FROM crm_users WHERE id=?').bind(input.id).first<UserRow>();
   if (!row) throw new Error('User update failed');
   return publicUser(row);
+}
+
+export async function deleteUser(actor: CrmSession, id: string): Promise<void> {
+  if (actor.userId === id) throw new AuthError('自分自身のアカウントは削除できません', 400);
+  const current = await database().prepare('SELECT id FROM crm_users WHERE id=?').bind(id).first<{ id: string }>();
+  if (!current) throw new AuthError('担当者が見つかりません', 404);
+  await database().batch([
+    database().prepare('DELETE FROM crm_sessions WHERE user_id=?').bind(id),
+    database().prepare('DELETE FROM crm_users WHERE id=?').bind(id),
+  ]);
 }
 
 export async function submitAccessRequest(input: { email: string; displayName: string; password: string; requestedPortal: RequestedPortal }): Promise<AccessRequest> {

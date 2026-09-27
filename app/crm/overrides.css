@@ -295,6 +295,45 @@ body { background: #f4f7fb; }
   background: #f8fafd;
   font-size: 10px;
 }
+.slack-panel {
+  margin-bottom: 15px;
+  overflow: hidden;
+  border: 1px solid #d7e0eb;
+  border-radius: 7px;
+  background: #fff;
+  box-shadow: 0 2px 5px rgba(14, 39, 72, .025);
+}
+.slack-panel-head { display: flex; align-items: center; gap: 9px; padding: 14px 16px; border-bottom: 1px solid #e7edf4; }
+.slack-title { display: flex; align-items: center; gap: 10px; flex: 1; min-width: 250px; }
+.slack-title > svg { width: 31px; height: 31px; padding: 7px; border-radius: 7px; color: #4a154b; background: #f7eef8; }
+.slack-title strong, .slack-title small { display: block; }
+.slack-title strong { color: #182b46; font-size: 13px; }
+.slack-title small { margin-top: 2px; color: #7a899c; font-size: 9px; }
+.slack-state { padding: 5px 8px; border-radius: 99px; font-size: 9px; font-weight: 750; }
+.slack-state.ready { color: #146c56; background: #e8f7f1; }
+.slack-state.waiting { color: #956017; background: #fff4df; }
+.slack-panel-head button { height: 31px; font-size: 10px; }
+.slack-config-grid { display: grid; grid-template-columns: repeat(6,minmax(0,1fr)); gap: 1px; background: #e7edf4; }
+.slack-config-grid > div { padding: 12px 14px; background: #fbfcfe; }
+.slack-config-grid span, .slack-config-grid strong { display: block; }
+.slack-config-grid span { color: #7a899b; font-size: 9px; }
+.slack-config-grid strong { margin-top: 4px; color: #1e3552; font-size: 11px; }
+.slack-setup-note { margin: 0; padding: 9px 16px; border-top: 1px solid #ead8aa; border-bottom: 1px solid #ead8aa; color: #7f5a1d; background: #fffaf0; font-size: 10px; }
+.slack-history > div:first-child { display: flex; justify-content: space-between; padding: 11px 16px 8px; color: #253b58; font-size: 10px; }
+.slack-history > div:first-child span { color: #8491a2; font-size: 9px; }
+.slack-history-row { display: grid; grid-template-columns: 64px minmax(0,1fr) 145px; align-items: center; gap: 10px; padding: 9px 16px; border-top: 1px solid #eef2f6; }
+.slack-history-row strong, .slack-history-row small { display: block; }
+.slack-history-row strong { color: #263b56; font-size: 10px; }
+.slack-history-row small { margin-top: 2px; color: #8190a3; font-size: 9px; }
+.slack-history-row time { color: #7c8a9d; font-size: 9px; text-align: right; }
+.slack-result { padding: 4px 6px; border-radius: 4px; font-size: 9px; font-weight: 700; text-align: center; }
+.slack-result.sent { color: #146c56; background: #e8f7f1; }
+.slack-result.failed { color: #a13f3f; background: #fcecec; }
+.slack-result.pending { color: #7a5c18; background: #fff4d9; }
+.slack-empty { padding: 13px 16px; border-top: 1px solid #eef2f6; color: #8b98a8; font-size: 10px; }
+.slack-id-input { min-width: 126px; height: 31px; font-size: 10px; text-transform: uppercase; }
+.spin { animation: slack-spin 1s linear infinite; }
+@keyframes slack-spin { to { transform: rotate(360deg); } }
 .task-item { border-bottom-color: #e9eef4; }
 
 .deal-summary { grid-template-columns: 1fr 1.6fr .7fr 1fr 1fr; border-radius: 6px; }
@@ -501,6 +540,7 @@ body { background: #f4f7fb; }
 .footnote { color: #8794a6; }
 
 @media (max-width: 1150px) {
+  .slack-config-grid { grid-template-columns: repeat(3,minmax(0,1fr)); }
   .metrics { grid-template-columns: repeat(3, minmax(0, 1fr)); }
   .dashboard-grid { grid-template-columns: 1fr; }
   .settings-workspace { grid-template-columns: 250px minmax(0, 1fr); }
@@ -529,6 +569,11 @@ body { background: #f4f7fb; }
   .task-toolbar { align-items: stretch; flex-direction: column; }
   .task-actions { width: 100%; margin-left: 0; }
   .task-actions button { flex: 1; }
+  .slack-panel-head { align-items: stretch; flex-wrap: wrap; }
+  .slack-title { width: 100%; }
+  .slack-config-grid { grid-template-columns: repeat(2,minmax(0,1fr)); }
+  .slack-history-row { grid-template-columns: 60px 1fr; }
+  .slack-history-row time { grid-column: 2; text-align: left; }
   .scope-switch { display: none; }
   .category-tabs { overflow-x: auto; }
   .category-tabs button { white-space: nowrap; }

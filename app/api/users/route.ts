@@ -30,8 +30,8 @@ export async function PATCH(request: Request) {
   try {
     const session = await requireCrmSession();
     if (!session.isAdmin) throw new AuthError('管理者権限が必要です', 403);
-    const body = await request.json() as { id?: string; displayName?: string; role?: UserRole; crmAccess?: CrmAccess; workforceAccess?: WorkforceAccess; active?: boolean; initialPassword?: string };
-    if (!body.id || body.role && !userRoles.includes(body.role) || body.crmAccess && !crmAccessLevels.includes(body.crmAccess) || body.workforceAccess && !workforceAccessLevels.includes(body.workforceAccess)) throw new AuthError('入力内容を確認してください', 400);
+    const body = await request.json() as { id?: string; displayName?: string; role?: UserRole; crmAccess?: CrmAccess; workforceAccess?: WorkforceAccess; slackUserId?: string; active?: boolean; initialPassword?: string };
+    if (!body.id || body.role && !userRoles.includes(body.role) || body.crmAccess && !crmAccessLevels.includes(body.crmAccess) || body.workforceAccess && !workforceAccessLevels.includes(body.workforceAccess) || body.slackUserId && !/^[UW][A-Z0-9]{8,20}$/i.test(body.slackUserId.trim())) throw new AuthError('入力内容を確認してください', 400);
     return Response.json({ user: await updateUser(session, { ...body, id: body.id }) });
   } catch (error) { return errorResponse(error); }
 }

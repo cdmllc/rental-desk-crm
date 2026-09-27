@@ -1,0 +1,36 @@
+name: Slack task notifications
+
+on:
+  schedule:
+    # Japan time: 09:00, 12:00, 16:00
+    - cron: '0 0 * * *'
+    - cron: '0 3 * * *'
+    - cron: '0 7 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: slack-task-notifications
+  cancel-in-progress: false
+
+jobs:
+  notify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      ENDPOINT: https://crm.cdm-lifesupport.com/api/notifications/slack/run
+      CRON_SECRET: ${{ secrets.CRM_SLACK_CRON_SECRET }}
+    steps:
+      - name: Run notification batch
+        if: env.CRON_SECRET != ''
+        run: |
+          curl --fail-with-body --silent --show-error \
+            --retry 2 --retry-all-errors \
+            --request POST \
+            --header "Authorization: Bearer ${CRON_SECRET}" \
+            "${ENDPOINT}"
+      - name: Explain missing setup
+        if: env.CRON_SECRET == ''
+        run: echo "CRM_SLACK_CRON_SECRET is not configured; no notification request was sent."

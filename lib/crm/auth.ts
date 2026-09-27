@@ -18,7 +18,7 @@ const BOOTSTRAP_USERS = [
 
 type UserRow = {
   id: string; email: string; display_name: string; role: UserRole; crm_access: CrmAccess; workforce_access: WorkforceAccess; password_salt: string; password_hash: string;
-  must_change_password: number; active: number; failed_attempts: number; locked_until: number; created_at: number; updated_at: number;
+  slack_user_id: string; must_change_password: number; active: number; failed_attempts: number; locked_until: number; created_at: number; updated_at: number;
 };
 type AccessRequestRow = {
   id: string; email: string; display_name: string; password_salt: string; password_hash: string;
@@ -41,6 +41,7 @@ export async function ensureAuthSchema() {
       role TEXT NOT NULL CHECK (role IN ('admin','agent')),
       crm_access TEXT NOT NULL DEFAULT 'own',
       workforce_access TEXT NOT NULL DEFAULT 'none',
+      slack_user_id TEXT NOT NULL DEFAULT '',
       password_salt TEXT NOT NULL,
       password_hash TEXT NOT NULL,
       must_change_password INTEGER NOT NULL DEFAULT 1,
@@ -74,9 +75,10 @@ export async function ensureAuthSchema() {
   ]);
   const columns = await db.prepare('PRAGMA table_info(crm_users)').all<{ name: string }>();
   const names = new Set((columns.results || []).map(column => column.name));
-  const addedCrmAccess = !names.has('crm_access'), addedWorkforceAccess = !names.has('workforce_access');
+  const addedCrmAccess = !names.has('crm_access'), addedWorkforceAccess = !names.has('workforce_access'), addedSlackUserId = !names.has('slack_user_id');
   if (addedCrmAccess) await db.prepare("ALTER TABLE crm_users ADD COLUMN crm_access TEXT NOT NULL DEFAULT 'own'").run();
   if (addedWorkforceAccess) await db.prepare("ALTER TABLE crm_users ADD COLUMN workforce_access TEXT NOT NULL DEFAULT 'none'").run();
+  if (addedSlackUserId) await db.prepare("ALTER TABLE crm_users ADD COLUMN slack_user_id TEXT NOT NULL DEFAULT ''").run();
   if (addedCrmAccess) await db.prepare("UPDATE crm_users SET crm_access=CASE WHEN role='admin' THEN 'admin' ELSE 'own' END").run();
   if (addedWorkforceAccess) await db.prepare("UPDATE crm_users SET workforce_access=CASE WHEN role='admin' THEN 'admin' ELSE 'none' END").run();
   const requestColumns = await db.prepare('PRAGMA table_info(crm_access_requests)').all<{ name: string }>();
@@ -93,7 +95,7 @@ export async function ensureAuthSchema() {
 export function publicUser(row: UserRow): CrmUser {
   return {
     id: row.id, email: row.email, displayName: row.display_name, role: row.role,
-    crmAccess: row.crm_access || (row.role === 'admin' ? 'admin' : 'own'), workforceAccess: row.workforce_access || (row.role === 'admin' ? 'admin' : 'none'),
+    crmAccess: row.crm_access || (row.role === 'admin' ? 'admin' : 'own'), workforceAccess: row.workforce_access || (row.role === 'admin' ? 'admin' : 'none'), slackUserId: row.slack_user_id || '',
     active: row.active === 1, mustChangePassword: row.must_change_password === 1,
     createdAt: row.created_at, updatedAt: row.updated_at,
   };
@@ -179,7 +181,7 @@ export async function createUser(input: { email: string; displayName: string; ro
   return publicUser(row);
 }
 
-export async function updateUser(actor: CrmSession, input: { id: string; displayName?: string; role?: UserRole; crmAccess?: CrmAccess; workforceAccess?: WorkforceAccess; active?: boolean; initialPassword?: string }): Promise<CrmUser> {
+export async function updateUser(actor: CrmSession, input: { id: string; displayName?: string; role?: UserRole; crmAccess?: CrmAccess; workforceAccess?: WorkforceAccess; slackUserId?: string; active?: boolean; initialPassword?: string }): Promise<CrmUser> {
   if (actor.userId === input.id && (input.role === 'agent' || input.active === false)) throw new AuthError('自分自身の管理者権限は停止できません', 400);
   const current = await database().prepare('SELECT * FROM crm_users WHERE id=?').bind(input.id).first<UserRow>();
   if (!current) throw new AuthError('担当者が見つかりません', 404);
@@ -191,8 +193,10 @@ export async function updateUser(actor: CrmSession, input: { id: string; display
     await database().prepare('DELETE FROM crm_sessions WHERE user_id=?').bind(input.id).run();
   }
   if (input.crmAccess && !crmAccessLevels.includes(input.crmAccess) || input.workforceAccess && !workforceAccessLevels.includes(input.workforceAccess)) throw new AuthError('権限設定を確認してください', 400);
-  await database().prepare(`UPDATE crm_users SET display_name=?, role=?, crm_access=?, workforce_access=?, active=?, password_salt=?, password_hash=?, must_change_password=?, updated_at=? WHERE id=?`)
-    .bind(input.displayName?.trim() || current.display_name, input.role || current.role, input.crmAccess || current.crm_access, input.workforceAccess || current.workforce_access, input.active === undefined ? current.active : Number(input.active), salt, hash, mustChange, Date.now(), input.id).run();
+  const slackUserId = input.slackUserId === undefined ? current.slack_user_id : input.slackUserId.trim().toUpperCase();
+  if (slackUserId && !/^[UW][A-Z0-9]{8,20}$/.test(slackUserId)) throw new AuthError('SlackメンバーIDを確認してください', 400);
+  await database().prepare(`UPDATE crm_users SET display_name=?, role=?, crm_access=?, workforce_access=?, slack_user_id=?, active=?, password_salt=?, password_hash=?, must_change_password=?, updated_at=? WHERE id=?`)
+    .bind(input.displayName?.trim() || current.display_name, input.role || current.role, input.crmAccess || current.crm_access, input.workforceAccess || current.workforce_access, slackUserId, input.active === undefined ? current.active : Number(input.active), salt, hash, mustChange, Date.now(), input.id).run();
   const row = await database().prepare('SELECT * FROM crm_users WHERE id=?').bind(input.id).first<UserRow>();
   if (!row) throw new Error('User update failed');
   return publicUser(row);

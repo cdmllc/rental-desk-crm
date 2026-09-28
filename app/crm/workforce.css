@@ -53,6 +53,8 @@
 
 .wf-toolbar { min-height: 64px; display: flex; align-items: center; justify-content: space-between; gap: 15px; padding: 13px 16px; border-bottom: 1px solid #e5ebf2; }
 .wf-toolbar > button { background: #135cdb; }
+.wf-toolbar-actions { display: flex; align-items: center; gap: 8px; }
+.wf-toolbar-actions button:last-child { background: #135cdb; }
 .wf-summary { display: flex; align-items: baseline; gap: 12px; }
 .wf-summary strong { color: #1c314e; font-size: 12px; }
 .wf-summary span { color: #8593a6; font-size: 10px; }
@@ -109,8 +111,9 @@
 .wf-master-row { min-height: 47px; border-top: 1px solid #e8edf3; }
 .wf-master-row input, .wf-master-row select { height: 32px; font-size: 10px; }
 .wf-master-row > button { justify-self: center; }
-.wf-master-table:has(.wf-master-row > :nth-child(4)) .wf-master-head, .wf-master-table:has(.wf-master-row > :nth-child(4)) .wf-master-row { grid-template-columns: 120px minmax(150px,1fr) minmax(140px,1fr) 72px; }
-.wf-master-table:has(.wf-master-row > :nth-child(5)) .wf-master-head, .wf-master-table:has(.wf-master-row > :nth-child(5)) .wf-master-row { grid-template-columns: 100px minmax(130px,1fr) minmax(140px,1fr) 80px 60px; }
+.wf-master-table.is-projects .wf-master-head, .wf-master-table.is-projects .wf-master-row { grid-template-columns: 120px minmax(150px,1fr) minmax(140px,1fr) 72px 76px; }
+.wf-master-table.is-projects .wf-master-row > button { height: 30px; padding: 0 8px; color: #a54a43; font-size: 9px; }
+.wf-master-table.is-performance-items .wf-master-head, .wf-master-table.is-performance-items .wf-master-row { grid-template-columns: 100px minmax(130px,1fr) minmax(140px,1fr) 80px 60px; }
 .wf-savebar { display: flex; align-items: center; justify-content: space-between; gap: 15px; padding: 12px 15px; border-top: 1px solid #e5ebf2; color: #8593a5; font-size: 9px; }
 .wf-savebar button { background: #135cdb; }
 

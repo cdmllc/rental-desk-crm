@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { applySalesTerms, chargebackDeadline, chargebackRate, dealPay, expectedPaymentDate, deleteProduct, deleteProductTerm, mergeSalesMaster, monthlyResults, netPrice, payRateFor, reviseProductTerm, saveProductTerm, termForDate } from '../lib/crm/sales.ts';
+import { applySalesTerms, chargebackDeadline, chargebackRate, dealPay, expectedPaymentDate, deleteProduct, deleteProductTerm, mergeSalesMaster, monthlyResults, netPrice, payRateFor, productsForStaff, reviseProductTerm, saveProductTerm, termForDate } from '../lib/crm/sales.ts';
 
 const term = (over = {}) => ({ id: 't', startDate: '2026-09-01', endDate: '', grossPrice: 25000, deduction: 5000, basePrice: null, payment: { monthOffset: 1, day: 'end', businessDays: 5 }, chargeback: [{ untilMonth: 6, rate: 1 }], achievement: '', chargebackNote: '', source: '', note: '', ...over });
 const settings = { roleRates: { rookie: 30, player: 45, manager: 50, lead: 60 }, statuses: [] };
@@ -85,4 +85,11 @@ test('案件のある商材は削除できず、ない商材は目標ごと消�
 test('条件の削除で商材の単価を現在の条件に合わせる', () => {
   const data = { products: [product({ terms: [term({ id: 'a', grossPrice: 30000, deduction: 0 }), term({ id: 'b', startDate: '2026-10-01', grossPrice: 10000, deduction: 0 })] })], deals: [] };
   assert.equal(deleteProductTerm(data, 'p', 'b', '2026-11-01').products[0].unitPrice, 30000);
+});
+test('担当者には条件の詳細を渡さず基準額だけ渡す', () => {
+  const [staff] = productsForStaff([product({ costUnitPrice: 500, terms: [term({ note: '秘密', source: '原本', achievement: '条件', chargebackNote: '戻入' })] })]);
+  const [t] = staff.terms;
+  assert.equal(t.grossPrice, 20000); assert.equal(t.deduction, 0); assert.equal(t.payment, null); assert.deepEqual(t.chargeback, []);
+  assert.deepEqual([t.note, t.source, t.achievement, t.chargebackNote], ['', '', '', '']); assert.equal(staff.costUnitPrice, 0);
+  assert.equal(applySalesTerms(deal(), { products: [staff], salesRoles: roles, settings }).unitPrice, 20000);
 });

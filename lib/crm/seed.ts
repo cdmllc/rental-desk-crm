@@ -1,4 +1,4 @@
-import { Data, Deal, DEFAULT_ADMIN_USER_ID, DEMO_AGENT_USER_ID, defaultProducts, defaultStatuses, shiftMonth, today } from './model';
+import { Data, Deal, DEFAULT_ADMIN_USER_ID, DEMO_AGENT_USER_ID, defaultProducts, defaultRoleRates, defaultStatuses, shiftMonth, today } from './model';
 
 export function sampleData(): Data {
   const day = today(), month = day.slice(0, 7), next = shiftMonth(month, 1), previous = shiftMonth(month, -1);
@@ -23,7 +23,7 @@ export function sampleData(): Data {
     adAmount: 200000, other: 0, partnerRate: 20, paymentMonth: index === 2 || index === 5 ? month : index === 6 ? previous : next,
     paymentDate: index === 2 || index === 5 ? `${month}-28` : index === 6 ? `${previous}-28` : `${next}-28`, paidDate: index === 6 ? `${previous}-28` : '', paid: index === 6,
     documents: ['申込書', '本人確認書類', '収入証明'].map((name, documentIndex) => ({ id: `doc${documentIndex}`, name, done: index === 0 ? documentIndex < 2 : index === 4 ? false : true })),
-    note: '日程と次回対応を案件単位で共有できます。', history: [{ at: `${day}T09:00:00+09:00`, text: '案件を作成' }],
+    note: '日程と次回対応を案件単位で共有できます。', history: [{ at: `${day}T09:00:00+09:00`, text: '案件を作成' }], achievedDate: '', cancelledDate: '', payRate: 0, termId: '',
   }));
   return {
     customers,
@@ -34,7 +34,7 @@ export function sampleData(): Data {
       { id: 'sample-t2', version: 1, dealId: deals[1].id, assigneeUserId: DEMO_AGENT_USER_ID, title: '内見の集合場所をご案内', dueDate: relative(1), owner: '佐々木', done: false },
       { id: 'sample-t3', version: 1, dealId: deals[5].id, assigneeUserId: DEMO_AGENT_USER_ID, title: '鍵の受け渡し日時を確定', dueDate: relative(3), owner: '佐々木', done: false },
     ],
-    products: defaultProducts.map(product => ({ ...product })),
-    settings: { id: 'default', version: 1, partnerRate: 20, statuses: defaultStatuses.map(status => ({ ...status })) },
+    products: defaultProducts.map(product => ({ ...product, terms: [], manualPrice: false })),
+    settings: { id: 'default', version: 1, partnerRate: 20, roleRates: { ...defaultRoleRates }, statuses: defaultStatuses.map(status => ({ ...status })) }, salesRoles: [], salesTargets: [],
   };
 }

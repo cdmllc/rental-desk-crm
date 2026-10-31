@@ -79,6 +79,7 @@ export const dealSchema = z.object({
   partnerRate: z.number().min(0).max(100), paymentMonth: month, paymentDate: date,
   paidDate: date, paid: z.boolean(), documents: z.array(z.object({ id: text.min(1), name: text.min(1), done: z.boolean() })).max(100),
   note: text, history: z.array(z.object({ at: text, text })).default([]),
+  achievedDate: date.default(''), cancelledDate: date.default(''), payRate: z.number().min(0).max(100).default(0), termId: text.default(''),
 }).superRefine((deal, context) => {
   if (deal.paid && !deal.paidDate) context.addIssue({ code: 'custom', message: '入金済の場合は実入金日を入力してください', path: ['paidDate'] });
   if (deal.paymentDate && deal.paymentMonth !== deal.paymentDate.slice(0, 7)) context.addIssue({ code: 'custom', message: '入金予定日と入金予定月を合わせてください', path: ['paymentMonth'] });
@@ -86,12 +87,24 @@ export const dealSchema = z.object({
 
 export const taskSchema = z.object({ ...base, dealId: text, assigneeUserId: text.default(''), title: text.min(1, 'タスク名を入力してください'), dueDate: date, owner: text, done: z.boolean() });
 export const statusOptionSchema = z.object({ id: z.string().min(1).max(100), label: z.string().trim().min(1).max(40), kind: z.enum(statusKinds) });
-const productInputSchema = z.object({ ...base, category: z.enum(businessCategories), name: z.string().trim().min(1).max(80), unitPrice: money, costUnitPrice: money.default(0), active: z.boolean(), statuses: z.array(statusOptionSchema).min(1).max(100).optional() });
+export const salesRoles = ['rookie', 'player', 'manager', 'lead'] as const;
+export const salesRoleLabels: Record<(typeof salesRoles)[number], string> = { rookie: '新人', player: 'プレイヤー', manager: 'マネージャー', lead: '統括' };
+export const defaultRoleRates = { rookie: 30, player: 45, manager: 50, lead: 60 };
+export const productTermSchema = z.object({
+  id: z.string().min(1).max(100), startDate: date, endDate: date, grossPrice: money, deduction: money.default(0), basePrice: money.nullable().default(null),
+  payment: z.object({ monthOffset: z.number().int().min(0).max(24), day: z.union([z.literal('end'), z.number().int().min(1).max(31)]), businessDays: z.number().int().min(0).max(31).default(0) }).nullable().default(null),
+  chargeback: z.array(z.object({ untilMonth: z.number().int().min(1).max(60), rate: z.number().min(0).max(1) })).max(20).default([]),
+  achievement: text.default(''), chargebackNote: text.default(''), source: text.default(''), note: text.default(''),
+});
+export const salesRoleSchema = z.object({ id: z.string().min(1).max(100), userId: z.string().min(1).max(100), role: z.enum(salesRoles), startDate: date, endDate: date });
+export const salesTargetSchema = z.object({ id: z.string().min(1).max(100), month, productId: z.string().min(1).max(100), minimum: money, standard: money, stretch: money });
+const productInputSchema = z.object({ ...base, terms: z.array(productTermSchema).max(100).default([]), manualPrice: z.boolean().default(false), category: z.enum(businessCategories), name: z.string().trim().min(1).max(80), unitPrice: money, costUnitPrice: money.default(0), active: z.boolean(), statuses: z.array(statusOptionSchema).min(1).max(100).optional() });
 export const productSchema = productInputSchema.transform(product => ({ ...product, statuses: product.statuses ?? defaultStatusesForCategory(product.category) }));
-export const settingsSchema = z.object({ ...base, partnerRate: z.number().min(0).max(100), statuses: z.array(statusOptionSchema).min(1).max(100).default(defaultStatuses.map(item => ({ ...item }))) });
+export const settingsSchema = z.object({ ...base, partnerRate: z.number().min(0).max(100), roleRates: z.object({ rookie: z.number().min(0).max(100), player: z.number().min(0).max(100), manager: z.number().min(0).max(100), lead: z.number().min(0).max(100) }).default({ ...defaultRoleRates }), statuses: z.array(statusOptionSchema).min(1).max(100).default(defaultStatuses.map(item => ({ ...item }))) });
 export const dataSchema = z.object({
   customers: z.array(customerSchema).max(5000), deals: z.array(dealSchema).max(10000), tasks: z.array(taskSchema).max(20000),
   products: z.array(productInputSchema).max(500).default(defaultProducts.map(item => ({ ...item }))), settings: settingsSchema,
+  salesRoles: z.array(salesRoleSchema).max(5000).default([]), salesTargets: z.array(salesTargetSchema).max(20000).default([]),
 }).transform(data => {
   const customers = data.customers.map(customer => ({
     ...customer,
@@ -116,6 +129,9 @@ export type Deal = z.infer<typeof dealSchema>;
 export type Task = z.infer<typeof taskSchema>;
 export type Settings = z.infer<typeof settingsSchema>;
 export type StatusOption = z.infer<typeof statusOptionSchema>;
+export type ProductTerm = z.infer<typeof productTermSchema>;
+export type SalesRole = z.infer<typeof salesRoleSchema>;
+export type SalesTarget = z.infer<typeof salesTargetSchema>;
 export type Product = z.infer<typeof productSchema>;
 export type Data = z.infer<typeof dataSchema>;
 export type UserRole = (typeof userRoles)[number];
@@ -152,7 +168,7 @@ export const ownsTask = (task: Task, session: CrmSession) => task.assigneeUserId
 export const statusesForDeal = (deal: Deal, data: Pick<Data, 'products' | 'settings'>) => data.products.find(product => product.id === deal.productId)?.statuses ?? data.settings.statuses;
 
 export function emptyData(): Data {
-  return { customers: [], deals: [], tasks: [], products: defaultProducts.map(item => ({ ...item })), settings: { id: 'default', version: 1, partnerRate: 20, statuses: defaultStatuses.map(item => ({ ...item })) } };
+  return { customers: [], deals: [], tasks: [], products: defaultProducts.map(item => ({ ...item, terms: [], manualPrice: false })), settings: { id: 'default', version: 1, partnerRate: 20, roleRates: { ...defaultRoleRates }, statuses: defaultStatuses.map(item => ({ ...item })) }, salesRoles: [], salesTargets: [] };
 }
 
 export function emptyDeal(customerId: string, rate: number, status: string, assigneeUserId = DEFAULT_ADMIN_USER_ID): Deal {
@@ -160,6 +176,6 @@ export function emptyDeal(customerId: string, rate: number, status: string, assi
     id: crypto.randomUUID(), version: 0, customerId, assigneeUserId, status, category: 'real-estate', productId: 'product-rental', pricingMode: 'realEstate', unitPrice: 0, costUnitPrice: 0, quantity: 1,
     property: '', room: '', rent: 0, commonFee: 0, management: '', viewingDate: '', applicationDate: '', contractDate: '', moveInDate: '',
     action: '', dueDate: '', brokerage: 0, adMode: 'rate', adBase: 0, adRate: 100, adAmount: 0, other: 0, partnerRate: rate,
-    paymentMonth: '', paymentDate: '', paidDate: '', paid: false, documents: [], note: '', history: [],
+    paymentMonth: '', paymentDate: '', paidDate: '', paid: false, documents: [], note: '', history: [], achievedDate: '', cancelledDate: '', payRate: 0, termId: '',
   };
 }

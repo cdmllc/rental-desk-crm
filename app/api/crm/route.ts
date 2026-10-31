@@ -1,7 +1,8 @@
 import { env } from 'cloudflare:workers';
 import { AuthError, listUsers, requireCrmSession } from '@/lib/crm/auth';
-import { DEFAULT_ADMIN_USER_ID, DEMO_AGENT_USER_ID, dataSchema, ownsCustomer, ownsDeal, ownsTask, type CrmSession, type Data } from '@/lib/crm/model';
+import { DEFAULT_ADMIN_USER_ID, DEMO_AGENT_USER_ID, dataSchema, ownsCustomer, ownsDeal, ownsTask, type CrmSession, type Data, type Deal } from '@/lib/crm/model';
 import { sampleData } from '@/lib/crm/seed';
+import { applySalesTerms } from '@/lib/crm/sales';
 
 export const dynamic = 'force-dynamic';
 const workspace = 'primary';
@@ -42,7 +43,15 @@ function filteredData(data: Data, session: CrmSession): Data {
   const customerIds = new Set(customers.map(customer => customer.id));
   const deals = data.deals.filter(deal => ownsDeal(deal, session) && customerIds.has(deal.customerId));
   const dealIds = new Set(deals.map(deal => deal.id));
-  return { ...data, customers, deals, tasks: data.tasks.filter(task => ownsTask(task, session) && (!task.dealId || dealIds.has(task.dealId))) };
+  return { ...data, customers, deals, tasks: data.tasks.filter(task => ownsTask(task, session) && (!task.dealId || dealIds.has(task.dealId))), salesRoles: data.salesRoles.filter(role => role.userId === session.userId) };
+}
+
+// 担当者は条件書で決まる単価と報酬率、成果確定日と解約日を変更できない。都度入力の商材だけ単価を受け付ける。
+function protectAgentDeal(deal: Deal, master: Data): Deal {
+  const previous = master.deals.find(item => item.id === deal.id), product = master.products.find(item => item.id === deal.productId);
+  if (!product || (!product.terms.length && !product.manualPrice)) return deal;
+  const locked = previous?.productId === deal.productId && !product.manualPrice ? { unitPrice: previous.unitPrice, termId: previous.termId } : product.manualPrice ? {} : { termId: '' };
+  return applySalesTerms({ ...deal, ...locked, achievedDate: previous?.achievedDate || '', cancelledDate: previous?.cancelledDate || '', payRate: previous?.productId === deal.productId ? previous.payRate : 0 }, master);
 }
 
 function mergeAgentData(master: Data, incoming: Data, session: CrmSession): Data {
@@ -54,10 +63,12 @@ function mergeAgentData(master: Data, incoming: Data, session: CrmSession): Data
 
   return {
     customers: [...master.customers.filter(customer => !ownsCustomer(customer, session)), ...incoming.customers],
-    deals: [...master.deals.filter(deal => !ownsDeal(deal, session)), ...incoming.deals],
+    deals: [...master.deals.filter(deal => !ownsDeal(deal, session)), ...incoming.deals.map(deal => protectAgentDeal(deal, master))],
     tasks: [...master.tasks.filter(task => !ownsTask(task, session)), ...incoming.tasks],
     products: master.products,
     settings: master.settings,
+    salesRoles: master.salesRoles,
+    salesTargets: master.salesTargets,
   };
 }
 

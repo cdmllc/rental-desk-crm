@@ -139,3 +139,8 @@ export function deleteProduct(current: Data, productId: string): Data {
   if (productInUse(current, productId)) return current;
   return { ...current, products: current.products.filter(item => item.id !== productId), salesTargets: current.salesTargets.filter(target => target.productId !== productId) };
 }
+
+// 商材条件は管理者だけに見せる。担当者には案件の計算に必要な期間と基準額だけ渡す。
+export function productsForStaff(products: Product[]): Product[] {
+  return products.map(product => ({ ...product, costUnitPrice: 0, terms: product.terms.map(term => ({ id: term.id, startDate: term.startDate, endDate: term.endDate, grossPrice: netPrice(term), deduction: 0, basePrice: null, payment: null, chargeback: [], achievement: '', chargebackNote: '', source: '', note: '' })) }));
+}

@@ -2,7 +2,7 @@ import { env } from 'cloudflare:workers';
 import { AuthError, listUsers, requireCrmSession } from '@/lib/crm/auth';
 import { DEFAULT_ADMIN_USER_ID, DEMO_AGENT_USER_ID, dataSchema, ownsCustomer, ownsDeal, ownsTask, type CrmSession, type Data, type Deal } from '@/lib/crm/model';
 import { sampleData } from '@/lib/crm/seed';
-import { applySalesTerms } from '@/lib/crm/sales';
+import { applySalesTerms, productsForStaff } from '@/lib/crm/sales';
 
 export const dynamic = 'force-dynamic';
 const workspace = 'primary';
@@ -38,12 +38,14 @@ async function readMasterData(): Promise<Data> {
 }
 
 function filteredData(data: Data, session: CrmSession): Data {
-  if (session.crmAccess === 'admin') return data;
+  if (session.isAdmin && session.crmAccess === 'admin') return data;
+  const staffView = { ...data, products: productsForStaff(data.products), salesRoles: data.salesRoles.filter(role => role.userId === session.userId) };
+  if (session.crmAccess === 'admin') return staffView;
   const customers = data.customers.filter(customer => ownsCustomer(customer, session));
   const customerIds = new Set(customers.map(customer => customer.id));
   const deals = data.deals.filter(deal => ownsDeal(deal, session) && customerIds.has(deal.customerId));
   const dealIds = new Set(deals.map(deal => deal.id));
-  return { ...data, customers, deals, tasks: data.tasks.filter(task => ownsTask(task, session) && (!task.dealId || dealIds.has(task.dealId))), salesRoles: data.salesRoles.filter(role => role.userId === session.userId) };
+  return { ...staffView, customers, deals, tasks: data.tasks.filter(task => ownsTask(task, session) && (!task.dealId || dealIds.has(task.dealId))) };
 }
 
 // 担当者は条件書で決まる単価と報酬率、成果確定日と解約日を変更できない。都度入力の商材だけ単価を受け付ける。
@@ -90,7 +92,7 @@ export async function PUT(request: Request) {
     const parsed = dataSchema.safeParse(await request.json());
     if (!parsed.success) return Response.json({ error: '入力内容を確認してください' }, { status: 400 });
     const master = await readMasterData();
-    const next = session.crmAccess === 'admin' ? parsed.data : mergeAgentData(master, parsed.data, session);
+    const next = session.isAdmin && session.crmAccess === 'admin' ? parsed.data : session.crmAccess === 'admin' ? { ...parsed.data, deals: parsed.data.deals.map(deal => protectAgentDeal(deal, master)), products: master.products, settings: master.settings, salesRoles: master.salesRoles, salesTargets: master.salesTargets } : mergeAgentData(master, parsed.data, session);
     const database = env.DB;
     if (!database) throw new Error('Database binding unavailable');
     await database.prepare(`INSERT INTO crm_state (workspace_id, data, updated_at) VALUES (?, ?, ?)

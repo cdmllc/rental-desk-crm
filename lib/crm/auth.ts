@@ -279,7 +279,7 @@ async function findUserByEmail(email: string) {
 }
 
 function validatePassword(value: string) {
-  if (value.length < 10 || !/[A-Za-z]/.test(value) || !/\d/.test(value)) throw new AuthError('パスワードは英字と数字を含む10文字以上にしてください', 400);
+  if (value.length < 8 || !/[A-Za-z]/.test(value) || !/\d/.test(value)) throw new AuthError('パスワードは英字と数字を含む8文字以上にしてください', 400);
 }
 
 async function createPasswordRecord(password: string) {

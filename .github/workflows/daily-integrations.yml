@@ -1,0 +1,94 @@
+name: Daily integrations
+
+# 毎日 03:00（日本時間）に CRM の外部連携の定時処理を呼ぶ。
+# Workers の無料プランは1回のリクエストで外部への呼び出し（D1・中継など）が50回までなので、仕事ごとに別々のリクエストで呼ぶ。
+# google-backup：CRMのバックアップを Google ドライブへ保存（?task=backup）
+# google-ledger：運用台帳（CRM_ シート）の書き換え（?task=ledger）
+# google-calendar：Googleカレンダーの同期（?task=calendar）。1回に最大100件。残りがあれば最大5回まで続けて呼ぶ（残りは翌日）。
+# freee-payments：freee で入金済みになった取引を CRM の案件へ反映する（2026-11-09 から止めている。下でコメントアウト）。
+# ほかの連携は、このファイルにジョブを足す。合言葉は GitHub の Secret INTEGRATIONS_CRON_SECRET（CRM 側の同じ名前の Secret と同じ値）。
+
+on:
+  schedule:
+    - cron: '0 18 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: daily-integrations
+  cancel-in-progress: false
+
+env:
+  BASE: https://crm.cdm-lifesupport.com/api/integrations
+  CRON_SECRET: ${{ secrets.INTEGRATIONS_CRON_SECRET }}
+
+jobs:
+  google-backup:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: バックアップを Google ドライブへ保存
+        if: env.CRON_SECRET != ''
+        run: |
+          curl --fail-with-body --silent --show-error --max-time 240 \
+            --request POST --header "Authorization: Bearer ${CRON_SECRET}" \
+            "${BASE}/google/daily?task=backup"
+      - name: 設定がないときの説明
+        if: env.CRON_SECRET == ''
+        run: echo "INTEGRATIONS_CRON_SECRET is not configured; no request was sent."
+
+  google-ledger:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    needs: google-backup
+    if: always()
+    steps:
+      - name: 運用台帳を書き換え
+        if: env.CRON_SECRET != ''
+        run: |
+          curl --fail-with-body --silent --show-error --max-time 240 \
+            --request POST --header "Authorization: Bearer ${CRON_SECRET}" \
+            "${BASE}/google/daily?task=ledger"
+      - name: 設定がないときの説明
+        if: env.CRON_SECRET == ''
+        run: echo "INTEGRATIONS_CRON_SECRET is not configured; no request was sent."
+
+  google-calendar:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    needs: google-ledger
+    if: always()
+    steps:
+      - name: Googleカレンダーを同期（残りがあれば最大5回まで続けて呼ぶ）
+        if: env.CRON_SECRET != ''
+        run: |
+          for attempt in 1 2 3 4 5; do
+            body=$(curl --fail-with-body --silent --show-error --max-time 240 \
+              --request POST --header "Authorization: Bearer ${CRON_SECRET}" \
+              "${BASE}/google/daily?task=calendar")
+            echo "${body}"
+            remaining=$(echo "${body}" | jq -r '.remaining // 0')
+            if [ "${remaining}" = "0" ]; then break; fi
+            sleep 5
+          done
+      - name: 設定がないときの説明
+        if: env.CRON_SECRET == ''
+        run: echo "INTEGRATIONS_CRON_SECRET is not configured; no request was sent."
+
+  # freee 連携は 2026-11-09 から止めている（lib/crm/freee/enabled.ts）。再開するときは下のコメントを外す。
+  # freee-payments:
+  #   runs-on: ubuntu-latest
+  #   timeout-minutes: 5
+  #   steps:
+  #     - name: freee の入金を取り込む
+  #       if: env.CRON_SECRET != ''
+  #       run: |
+  #         curl --fail-with-body --silent --show-error \
+  #           --retry 2 --retry-all-errors \
+  #           --request POST --header "Authorization: Bearer ${CRON_SECRET}" \
+  #           "${BASE}/freee/daily"
+  #     - name: 設定がないときの説明
+  #       if: env.CRON_SECRET == ''
+  #       run: echo "INTEGRATIONS_CRON_SECRET is not configured; no request was sent."
